@@ -1,7 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app, render_template, send_from_directory
+from flask import Blueprint, request, jsonify, current_app, render_template, send_from_directory, url_for
 from plugins.plugin_registry import get_plugin_instance
 from utils.app_utils import resolve_path, handle_request_files, parse_form
-from refresh_task import ManualRefresh, PlaylistRefresh
+from refresh_task import ManualRefresh, PlaylistRefresh, ManualUpdateBusy
 import json
 import os
 import logging
@@ -34,6 +34,28 @@ def _get_supported_plugin_or_response(device_config, plugin_id):
     if not plugin_config:
         return None, jsonify({"error": f"Unsupported plugin '{plugin_id}'"}), 404
     return plugin_config, None, None
+
+def _accepted_refresh_job_response(refresh_task, refresh_action):
+    try:
+        job = refresh_task.enqueue_manual_update(refresh_action)
+    except ManualUpdateBusy as e:
+        job = e.active_job
+        job["status_url"] = url_for("plugin.refresh_job_status", job_id=job["id"])
+        return jsonify({
+            "success": False,
+            "error": "A display update is already queued or running",
+            "job": job
+        }), 409
+
+    if not job:
+        return jsonify({"error": "Background refresh task is not running"}), 503
+
+    job["status_url"] = url_for("plugin.refresh_job_status", job_id=job["id"])
+    return jsonify({
+        "success": True,
+        "message": "Display update queued",
+        "job": job
+    }), 202
 
 # Removed module-level PLUGINS_DIR - will resolve dynamically in route handlers
 
@@ -234,7 +256,12 @@ def display_plugin_instance():
         if not plugin_instance:
             return jsonify({"success": False, "message": f"Plugin instance '{plugin_instance_name}' not found"}), 400
 
-        refresh_task.manual_update(PlaylistRefresh(playlist, plugin_instance, force=True))
+        if refresh_task.running:
+            return _accepted_refresh_job_response(
+                refresh_task,
+                PlaylistRefresh(playlist, plugin_instance, force=True)
+            )
+        return jsonify({"error": "Background refresh task is not running"}), 503
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
@@ -256,7 +283,10 @@ def update_now():
 
         # Check if refresh task is running
         if refresh_task.running:
-            refresh_task.manual_update(ManualRefresh(plugin_id, plugin_settings))
+            return _accepted_refresh_job_response(
+                refresh_task,
+                ManualRefresh(plugin_id, plugin_settings)
+            )
         else:
             # In development mode, directly update the display
             logger.info("Refresh task not running, updating display directly")
@@ -269,3 +299,11 @@ def update_now():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
     return jsonify({"success": True, "message": "Display updated"}), 200
+
+@plugin_bp.route('/refresh_job/<job_id>', methods=['GET'])
+def refresh_job_status(job_id):
+    refresh_task = current_app.config['REFRESH_TASK']
+    job = refresh_task.get_manual_update_status(job_id)
+    if not job:
+        return jsonify({"error": "Refresh job not found"}), 404
+    return jsonify({"success": True, "job": job}), 200

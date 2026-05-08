@@ -150,6 +150,29 @@
             }
         }
 
+        async function waitForRefreshJob(job) {
+            const maxAttempts = 180;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const response = await fetch(job.status_url);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Refresh status was lost; check the display or reload');
+                }
+
+                const state = result.job.state;
+                if (state === 'done') {
+                    return result.job;
+                }
+                if (state === 'error') {
+                    throw new Error(result.job.error || 'Display update failed');
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            throw new Error('Refresh is still running; check the display or reload');
+        }
+
         async function displayPluginInstance(playlistName, pluginId, pluginInstance) {
             const loadingIndicator = document.getElementById(pluginInstance)?.querySelector('.loading-indicator');
             loadingIndicator.style.display = 'block';
@@ -168,14 +191,23 @@
 
                 const result = await response.json();
                 if (response.ok) {
-                    sessionStorage.setItem("storedMessage", JSON.stringify({ type: "success", text: `Success! ${result.message}` }));
+                    let message = result.message;
+                    if (response.status === 202 && result.job) {
+                        await waitForRefreshJob(result.job);
+                        message = 'Display updated';
+                    }
+                    sessionStorage.setItem("storedMessage", JSON.stringify({ type: "success", text: `Success! ${message}` }));
+                    location.reload();
+                } else if (response.status === 409 && result.job) {
+                    await waitForRefreshJob(result.job);
+                    sessionStorage.setItem("storedMessage", JSON.stringify({ type: "success", text: "Success! Display updated" }));
                     location.reload();
                 } else {
                     showResponseModal('failure', `Error!  ${result.error}`);
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('An error occurred while processing your request.');
+                showResponseModal('failure', `Error! ${error.message}`);
             } finally {
                 // Hide loading indicator after the action is complete
                 loadingIndicator.style.display = 'none';

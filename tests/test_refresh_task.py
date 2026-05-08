@@ -9,8 +9,8 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import refresh_task as refresh_task_module
-from model import RefreshInfo
-from refresh_task import RefreshTask
+from model import Playlist, RefreshInfo
+from refresh_task import ManualUpdateBusy, PlaylistRefresh, RefreshTask
 
 
 class FakePlugin:
@@ -18,15 +18,24 @@ class FakePlugin:
 
 
 class FakePlaylistManager:
+    def __init__(self, playlist=None):
+        self.playlist = playlist
+
     def determine_active_playlist(self, current_dt):
+        return None
+
+    def get_playlist(self, playlist_name):
+        if self.playlist and self.playlist.name == playlist_name:
+            return self.playlist
         return None
 
 
 class FakeDeviceConfig:
-    def __init__(self):
+    def __init__(self, playlist=None):
         self.refresh_info = RefreshInfo(None, None, None, None)
-        self.playlist_manager = FakePlaylistManager()
+        self.playlist_manager = FakePlaylistManager(playlist)
         self.writes = 0
+        self.plugin_image_dir = "/tmp"
 
     def get_config(self, key, default=None):
         return default
@@ -77,57 +86,112 @@ class FakeManualAction:
         return self.plugin_id
 
 
-def test_concurrent_manual_updates_keep_caller_specific_results(monkeypatch):
+def test_concurrent_manual_updates_are_single_flight(monkeypatch):
     monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
     first_started = threading.Event()
     release_first = threading.Event()
-    second_started = threading.Event()
-    expected_error = RuntimeError("second refresh failed")
-    errors = {}
-    first_errors = []
 
     task = RefreshTask(FakeDeviceConfig(), FakeDisplayManager())
     task.start()
 
-    def run_first_update():
-        try:
-            task.manual_update(FakeManualAction("first", first_started, release_first))
-        except Exception as exc:
-            first_errors.append(exc)
-
-    first_thread = threading.Thread(target=run_first_update)
-
-    def run_second_update():
-        second_started.set()
-        with pytest.raises(RuntimeError, match="second refresh failed") as exc_info:
-            task.manual_update(FakeManualAction("second", exception=expected_error))
-        errors["second"] = exc_info.value
-
-    second_thread = threading.Thread(target=run_second_update)
-
     try:
-        first_thread.start()
+        first_job = task.enqueue_manual_update(FakeManualAction("first", first_started, release_first))
         assert first_started.wait(timeout=2)
 
-        second_thread.start()
-        assert second_started.wait(timeout=2)
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            with task.condition:
-                if len(task.manual_update_queue) == 1:
-                    break
-            time.sleep(0.01)
-        else:
-            pytest.fail("second manual update was not queued while first update was running")
+        with pytest.raises(ManualUpdateBusy) as exc_info:
+            task.enqueue_manual_update(FakeManualAction("second"))
+
+        assert exc_info.value.active_job["id"] == first_job["id"]
+        assert exc_info.value.active_job["state"] == "running"
+        with task.condition:
+            assert len(task.manual_update_queue) == 0
 
         release_first.set()
-
-        first_thread.join(timeout=2)
-        second_thread.join(timeout=2)
     finally:
         task.stop()
 
-    assert not first_thread.is_alive()
-    assert not second_thread.is_alive()
-    assert first_errors == []
-    assert errors["second"] is expected_error
+    assert task.get_manual_update_status(first_job["id"])["state"] == "done"
+
+
+def test_enqueue_manual_update_returns_status_and_completes(monkeypatch):
+    monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
+
+    task = RefreshTask(FakeDeviceConfig(), FakeDisplayManager())
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(FakeManualAction("weather"))
+
+        assert job["id"]
+        assert job["state"] == "queued"
+        assert job["plugin_id"] == "weather"
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "done":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("manual update job did not complete")
+
+        assert status["error"] is None
+        assert status["finished_at"] is not None
+    finally:
+        task.stop()
+
+
+def test_enqueue_manual_update_reports_errors(monkeypatch):
+    monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
+    expected_error = RuntimeError("refresh failed")
+
+    task = RefreshTask(FakeDeviceConfig(), FakeDisplayManager())
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(FakeManualAction("weather", exception=expected_error))
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "error":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("manual update job did not report an error")
+
+        assert status["error"] == "refresh failed"
+    finally:
+        task.stop()
+
+
+def test_playlist_refresh_re_resolves_deleted_plugin_instance(monkeypatch):
+    monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
+    playlist = Playlist("Default", "00:00", "24:00", [{
+        "plugin_id": "weather",
+        "name": "Weather",
+        "plugin_settings": {},
+        "refresh": {"interval": 3600}
+    }])
+    plugin_instance = playlist.find_plugin("weather", "Weather")
+    action = PlaylistRefresh(playlist, plugin_instance, force=True)
+    playlist.delete_plugin("weather", "Weather")
+
+    task = RefreshTask(FakeDeviceConfig(playlist), FakeDisplayManager())
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(action)
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "error":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("deleted plugin instance job did not fail")
+
+        assert "no longer exists" in status["error"]
+    finally:
+        task.stop()
