@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 
 from utils.image_utils import resize_image, change_orientation, apply_image_enhancement
 from display.mock_display import MockDisplay
@@ -31,6 +32,7 @@ class DisplayManager:
         """
         
         self.device_config = device_config
+        self.display_lock = threading.Lock()
      
         display_type = device_config.get_config("display_type")
 
@@ -73,4 +75,5 @@ class DisplayManager:
         image = apply_image_enhancement(image, self.device_config.get_config("image_settings"))
 
         # Pass to the concrete instance to render to the device.
-        self.display.display_image(image, image_settings)
+        with self.display_lock:
+            self.display.display_image(image, image_settings)

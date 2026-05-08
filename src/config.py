@@ -144,6 +144,38 @@ class Config:
             return self.config.get(key, default)
         return self.config
 
+    def get_web_server_threads(self, default=2, max_threads=8):
+        """Returns the configured Waitress worker thread count."""
+        configured_threads = self.get_config("web_server_threads", default)
+        try:
+            thread_count = int(configured_threads)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid web_server_threads value %r; using default %s.",
+                configured_threads,
+                default
+            )
+            return default
+
+        if thread_count < 1:
+            logger.warning(
+                "Invalid web_server_threads value %r; using default %s.",
+                configured_threads,
+                default
+            )
+            return default
+
+        if thread_count > max_threads:
+            logger.warning(
+                "web_server_threads value %s exceeds maximum %s; using %s.",
+                thread_count,
+                max_threads,
+                max_threads
+            )
+            return max_threads
+
+        return thread_count
+
     def get_plugins(self):
         """Returns the list of plugin configurations, sorted by custom order if set."""
         plugin_order = self.config.get('plugin_order', [])

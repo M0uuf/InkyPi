@@ -68,3 +68,25 @@ def test_config_loads_only_supported_builtin_plugins(tmp_path):
     backup_config = json.loads(backups[0].read_text())
     assert backup_config["plugin_order"] == ["clock", "weather", "calendar"]
     assert backup_config["playlist_config"]["playlists"][0]["plugins"][1]["plugin_id"] == "clock"
+
+
+def test_config_returns_validated_web_server_threads():
+    config = Config.__new__(Config)
+    config.config = {"web_server_threads": "4"}
+
+    assert config.get_web_server_threads() == 4
+
+
+def test_config_defaults_web_server_threads_for_invalid_values():
+    config = Config.__new__(Config)
+
+    for value in ("", "many", 0, -1, None):
+        config.config = {"web_server_threads": value}
+        assert config.get_web_server_threads(default=2) == 2
+
+
+def test_config_caps_web_server_threads():
+    config = Config.__new__(Config)
+    config.config = {"web_server_threads": 99}
+
+    assert config.get_web_server_threads(default=2, max_threads=8) == 8
