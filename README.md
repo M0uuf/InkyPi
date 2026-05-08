@@ -85,8 +85,10 @@ To update your InkyPi with the latest code changes, follow these steps:
     ```
 3. Run the update script with sudo:
     ```bash
-    sudo bash install/update.sh
+    sudo bash install/update.sh [-W <waveshare device model>]
     ```
+    Use `-W` if your existing `src/config/device.json` is missing `display_type` or still has an old non-Waveshare value.
+
 This process ensures that any new updates, including code changes and additional dependencies, are properly applied without requiring a full reinstallation.
 
 ## Uninstall

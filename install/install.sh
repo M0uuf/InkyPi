@@ -65,7 +65,7 @@ resolve_waveshare_type() {
     WS_TYPE=$(python3 -c "import json, sys; print(json.load(open(sys.argv[1])).get('display_type', ''))" "$DEVICE_JSON")
   fi
 
-  if [[ -z "$WS_TYPE" || "$WS_TYPE" == "mock" || "$WS_TYPE" == "inky" || "$WS_TYPE" != epd* ]]; then
+  if [[ -z "$WS_TYPE" || ! "$WS_TYPE" =~ ^epd[0-9]+(in[0-9]+)?[A-Za-z0-9_]*$ ]]; then
     echo_error "ERROR: A Waveshare display_type is required. Run with -W <waveshare_model>, e.g. -W epd7in3f."
     exit 1
   fi
