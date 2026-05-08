@@ -7,10 +7,6 @@ from pi_heif import register_heif_opener
 
 logging.config.fileConfig(os.path.join(os.path.dirname(__file__), 'config', 'logging.conf'))
 
-# suppress warning from inky library https://github.com/pimoroni/inky/issues/205
-import warnings
-warnings.filterwarnings("ignore", message=".*Busy Wait: Held high.*")
-
 import os
 import random
 import time

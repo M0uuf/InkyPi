@@ -6,10 +6,10 @@ from PIL import Image
 
 PLUGIN_CONFIG_FILE = "install/config_base/plugins.json"
 RESOLUTIONS = [
-    [400, 300],	# Inky wHAT
-    [640, 400], # Inky Impression 4"
-    [600, 448], # Inky Impression 5.7"
-    [800, 480], # Inky Impression 7.3"
+    [640, 400], # Waveshare 4.0" e-Paper
+    [800, 480], # Waveshare 7.3" e-Paper
+    [880, 528], # Waveshare 7.5" e-Paper
+    [1600, 1200], # Waveshare 13.3" e-Paper
 ]
 ORIENTATIONS = ["horizontal", "vertical"]
 
@@ -60,4 +60,3 @@ for resolution in RESOLUTIONS:
     y+= max(width, height)
 
 composite.show()
-
