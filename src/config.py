@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import shutil
+from datetime import datetime
 from dotenv import load_dotenv
 from model import PlaylistManager, RefreshInfo
 
@@ -25,6 +27,7 @@ class Config:
         self.config = self.read_config()
         self.plugins_list = self.read_plugins_list()
         if self.sanitize_plugin_config():
+            self.backup_config_before_sanitizing()
             self.write_raw_config()
         self.playlist_manager = self.load_playlist_manager()
         self.refresh_info = self.load_refresh_info()
@@ -114,6 +117,18 @@ class Config:
         with open(self.config_file, 'w') as outfile:
             json.dump(self.config, outfile, indent=4)
             outfile.write("\n")
+
+    def backup_config_before_sanitizing(self):
+        """Back up the original config before writing a sanitized replacement."""
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        config_dir = os.path.dirname(self.config_file)
+        backup_file = os.path.join(
+            config_dir,
+            f"device.pre-weather-calendar-only-{timestamp}.json"
+        )
+        shutil.copy2(self.config_file, backup_file)
+        logger.warning("Backed up original device config before plugin scope migration: %s", backup_file)
+        return backup_file
 
     def write_config(self):
         """Updates the cached config from the model objects and writes to the config file."""

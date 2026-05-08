@@ -62,3 +62,9 @@ def test_config_loads_only_supported_builtin_plugins(tmp_path):
     assert saved_config["plugin_order"] == ["weather", "calendar"]
     assert saved_config["playlist_config"]["playlists"][0]["plugins"][0]["plugin_id"] == "weather"
     assert saved_config["refresh_info"]["plugin_id"] is None
+
+    backups = list(tmp_path.glob("device.pre-weather-calendar-only-*.json"))
+    assert len(backups) == 1
+    backup_config = json.loads(backups[0].read_text())
+    assert backup_config["plugin_order"] == ["clock", "weather", "calendar"]
+    assert backup_config["playlist_config"]["playlists"][0]["plugins"][1]["plugin_id"] == "clock"

@@ -29,6 +29,12 @@ def _delete_plugin_instance_images(device_config, plugin_instance_obj):
     except Exception as e:
         logger.warning(f"Error during plugin cleanup for {plugin_instance_obj.plugin_id}: {e}")
 
+def _get_supported_plugin_or_response(device_config, plugin_id):
+    plugin_config = device_config.get_plugin(plugin_id)
+    if not plugin_config:
+        return None, jsonify({"error": f"Unsupported plugin '{plugin_id}'"}), 404
+    return plugin_config, None, None
+
 # Removed module-level PLUGINS_DIR - will resolve dynamically in route handlers
 
 @plugin_bp.route('/plugin/<plugin_id>')
@@ -166,6 +172,10 @@ def update_plugin_instance(instance_name):
             raise RuntimeError("Instance name is required")
 
         plugin_id = form_data.pop("plugin_id")
+        plugin_config, error_response, status_code = _get_supported_plugin_or_response(device_config, plugin_id)
+        if error_response:
+            return error_response, status_code
+
         plugin_instance = playlist_manager.find_plugin(plugin_id, instance_name)
         if not plugin_instance:
             return jsonify({"error": f"Plugin instance: {instance_name} does not exist"}), 500
@@ -212,6 +222,10 @@ def display_plugin_instance():
     plugin_instance_name = data.get("plugin_instance")
 
     try:
+        plugin_config, error_response, status_code = _get_supported_plugin_or_response(device_config, plugin_id)
+        if error_response:
+            return error_response, status_code
+
         playlist = playlist_manager.get_playlist(playlist_name)
         if not playlist:
             return jsonify({"success": False, "message": f"Playlist {playlist_name} not found"}), 400
@@ -236,6 +250,9 @@ def update_now():
         plugin_settings = parse_form(request.form)
         plugin_settings.update(handle_request_files(request.files))
         plugin_id = plugin_settings.pop("plugin_id")
+        plugin_config, error_response, status_code = _get_supported_plugin_or_response(device_config, plugin_id)
+        if error_response:
+            return error_response, status_code
 
         # Check if refresh task is running
         if refresh_task.running:
@@ -243,10 +260,6 @@ def update_now():
         else:
             # In development mode, directly update the display
             logger.info("Refresh task not running, updating display directly")
-            plugin_config = device_config.get_plugin(plugin_id)
-            if not plugin_config:
-                return jsonify({"error": f"Plugin '{plugin_id}' not found"}), 404
-
             plugin = get_plugin_instance(plugin_config)
             image = plugin.generate_image(plugin_settings, device_config)
             display_manager.display_image(image, image_settings=plugin_config.get("image_settings", []))

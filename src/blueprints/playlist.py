@@ -20,6 +20,9 @@ def add_plugin():
         plugin_settings = parse_form(request.form)
         refresh_settings = json.loads(plugin_settings.pop("refresh_settings"))
         plugin_id = plugin_settings.pop("plugin_id")
+        plugin_config = device_config.get_plugin(plugin_id)
+        if not plugin_config:
+            return jsonify({"error": f"Unsupported plugin '{plugin_id}'"}), 404
 
         playlist = refresh_settings.get('playlist')
         instance_name = refresh_settings.get('instance_name')
