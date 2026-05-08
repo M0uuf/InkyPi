@@ -67,8 +67,6 @@ def save_settings():
                 "contrast": float(form_data.get("contrast", "1.0"))
             }
         }
-        if "inky_saturation" in form_data:
-            settings["image_settings"]["inky_saturation"] = float(form_data.get("inky_saturation", "0.5"))
         device_config.update_config(settings)
 
         if plugin_cycle_interval_seconds != previous_interval_seconds:
@@ -145,4 +143,3 @@ def download_logs():
     except Exception as e:
         logger.error(f"Error reading logs: {e}")
         return Response(f"Error reading logs: {e}", status=500, mimetype="text/plain")
-

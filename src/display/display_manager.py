@@ -1,21 +1,16 @@
-import fnmatch
-import json
 import logging
+import re
 
 from utils.image_utils import resize_image, change_orientation, apply_image_enhancement
 from display.mock_display import MockDisplay
 
 logger = logging.getLogger(__name__)
-
-# Try to import hardware displays, but don't fail if they're not available
-try:
-    from display.inky_display import InkyDisplay
-except ImportError:
-    logger.info("Inky display not available, hardware support disabled")
+WAVESHARE_DISPLAY_TYPE_PATTERN = re.compile(r"^epd\d+(?:in\d+)?[A-Za-z0-9_]*$")
 
 try:
     from display.waveshare_display import WaveshareDisplay
 except ImportError:
+    WaveshareDisplay = None
     logger.info("Waveshare display not available, hardware support disabled")
 
 class DisplayManager:
@@ -37,22 +32,19 @@ class DisplayManager:
         
         self.device_config = device_config
      
-        display_type = device_config.get_config("display_type", default="inky")
+        display_type = device_config.get_config("display_type")
 
         if display_type == "mock":
             self.display = MockDisplay(device_config)
-        elif display_type == "inky":
-            self.display = InkyDisplay(device_config)
-        elif fnmatch.fnmatch(display_type, "epd*in*"):  
-            # derived from waveshare epd - we assume here that will be consistent
-            # otherwise we will have to enshring the manufacturer in the 
-            # display_type and then have a display_model parameter.  Will leave
-            # that for future use if the need arises.
-            #
-            # see https://github.com/waveshareteam/e-Paper
+        elif isinstance(display_type, str) and WAVESHARE_DISPLAY_TYPE_PATTERN.fullmatch(display_type):
+            if WaveshareDisplay is None:
+                raise ValueError("Waveshare display support is not available.")
             self.display = WaveshareDisplay(device_config)
         else:
-            raise ValueError(f"Unsupported display type: {display_type}")
+            raise ValueError(
+                f"Unsupported display type: {display_type}. "
+                "Only Waveshare EPD display types and 'mock' are supported."
+            )
 
     def display_image(self, image, image_settings=[]):
         
