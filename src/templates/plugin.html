@@ -61,6 +61,29 @@
             });
         }
 
+        async function waitForRefreshJob(job) {
+            const maxAttempts = 180;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const response = await fetch(job.status_url);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Refresh status was lost; check the display or reload');
+                }
+
+                const state = result.job.state;
+                if (state === 'done') {
+                    return result.job;
+                }
+                if (state === 'error') {
+                    throw new Error(result.job.error || 'Display update failed');
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            throw new Error('Refresh is still running; check the display or reload');
+        }
+
         async function handleAction(action) {
             const loadingIndicator = document.getElementById('loadingIndicator');
             loadingIndicator.style.display = 'block';
@@ -103,7 +126,15 @@
                 const result = await response.json();
                 // Handle the response
                 if (response.ok) {
-                    showResponseModal('success', `Success! ${result.message}`);
+                    let message = result.message;
+                    if (response.status === 202 && result.job) {
+                        await waitForRefreshJob(result.job);
+                        message = 'Display updated';
+                    }
+                    showResponseModal('success', `Success! ${message}`);
+                } else if (response.status === 409 && result.job) {
+                    await waitForRefreshJob(result.job);
+                    showResponseModal('success', 'Success! Display updated');
                 } else {
                     showResponseModal('failure', `Error!  ${result.error}`);
                 }
@@ -125,7 +156,7 @@
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('An error occurred while processing your request.');
+                showResponseModal('failure', `Error! ${error.message}`);
             } finally {
                 // Hide loading indicator after the action is complete
                 loadingIndicator.style.display = 'none';
