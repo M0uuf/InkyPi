@@ -57,6 +57,7 @@ template_dirs = [
 app.jinja_loader = ChoiceLoader([FileSystemLoader(directory) for directory in template_dirs])
 
 device_config = Config()
+SERVER_THREADS = device_config.get_web_server_threads()
 display_manager = DisplayManager(device_config)
 refresh_task = RefreshTask(device_config, display_manager)
 
@@ -108,6 +109,7 @@ if __name__ == '__main__':
             except:
                 pass  # Ignore if we can't get the IP
 
-        serve(app, host="0.0.0.0", port=PORT, threads=1)
+        logger.info("Starting Waitress with %s worker thread(s)", SERVER_THREADS)
+        serve(app, host="0.0.0.0", port=PORT, threads=SERVER_THREADS)
     finally:
         refresh_task.stop()

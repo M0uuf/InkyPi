@@ -4,6 +4,7 @@ import os
 import logging
 import psutil
 import pytz
+from collections import deque
 from datetime import datetime, timezone
 from plugins.plugin_registry import get_plugin_instance
 from utils.image_utils import compute_image_hash
@@ -11,6 +12,14 @@ from model import RefreshInfo, PlaylistManager
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+class ManualUpdateJob:
+    """Tracks one manual refresh request and its caller-specific outcome."""
+
+    def __init__(self, refresh_action):
+        self.refresh_action = refresh_action
+        self.event = threading.Event()
+        self.result = {}
 
 class RefreshTask:
     """Handles the logic for refreshing the display using a background thread."""
@@ -23,11 +32,7 @@ class RefreshTask:
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
         self.running = False
-        self.manual_update_request = ()
-
-        self.refresh_event = threading.Event()
-        self.refresh_event.set()
-        self.refresh_result = {}
+        self.manual_update_queue = deque()
 
     def start(self):
         """Starts the background thread for refreshing the display."""
@@ -41,6 +46,10 @@ class RefreshTask:
         """Stops the refresh task by notifying the background thread to exit."""
         with self.condition:
             self.running = False
+            while self.manual_update_queue:
+                job = self.manual_update_queue.popleft()
+                job.result["exception"] = RuntimeError("Refresh task stopped before manual update completed")
+                job.event.set()
             self.condition.notify_all()  # Wake the thread to let it exit
         if self.thread:
             logger.info("Stopping refresh task")
@@ -71,14 +80,17 @@ class RefreshTask:
         - Captures and logs any unexpected errors during execution to prevent the thread from exiting.
         """
         while True:
+            job = None
+            refresh_action = None
+            latest_refresh = None
+            current_dt = None
             try:
                 with self.condition:
                     sleep_time = self.device_config.get_config("plugin_cycle_interval_seconds", default=60*60)
 
                     # Wait for sleep_time or until notified
-                    self.condition.wait(timeout=sleep_time)
-                    self.refresh_result = {}
-                    self.refresh_event.clear()
+                    if not self.manual_update_queue:
+                        self.condition.wait(timeout=sleep_time)
 
                     # Exit if `stop()` is called
                     if not self.running:
@@ -88,12 +100,11 @@ class RefreshTask:
                     latest_refresh = self.device_config.get_refresh_info()
                     current_dt = self._get_current_datetime()
 
-                    refresh_action = None
-                    if self.manual_update_request:
+                    if self.manual_update_queue:
                         # handle immediate update request
                         logger.info("Manual update requested")
-                        refresh_action = self.manual_update_request
-                        self.manual_update_request = ()
+                        job = self.manual_update_queue.popleft()
+                        refresh_action = job.refresh_action
                     else:
 
                         if self.device_config.get_config("log_system_stats"):
@@ -105,47 +116,50 @@ class RefreshTask:
                         if plugin_instance:
                             refresh_action = PlaylistRefresh(playlist, plugin_instance)
 
-                    if refresh_action:
-                        plugin_config = self.device_config.get_plugin(refresh_action.get_plugin_id())
-                        if plugin_config is None:
-                            logger.error(f"Plugin config not found for '{refresh_action.get_plugin_id()}'.")
-                            continue
-                        plugin = get_plugin_instance(plugin_config)
-                        image = refresh_action.execute(plugin, self.device_config, current_dt)
-                        image_hash = compute_image_hash(image)
+                if refresh_action:
+                    plugin_config = self.device_config.get_plugin(refresh_action.get_plugin_id())
+                    if plugin_config is None:
+                        message = f"Plugin config not found for '{refresh_action.get_plugin_id()}'."
+                        if job:
+                            raise ValueError(message)
+                        logger.error(message)
+                        continue
+                    plugin = get_plugin_instance(plugin_config)
+                    image = refresh_action.execute(plugin, self.device_config, current_dt)
+                    image_hash = compute_image_hash(image)
 
-                        refresh_info = refresh_action.get_refresh_info()
-                        refresh_info.update({"refresh_time": current_dt.isoformat(), "image_hash": image_hash})
-                        # check if image is the same as current image
-                        if image_hash != latest_refresh.image_hash:
-                            logger.info(f"Updating display. | refresh_info: {refresh_info}")
-                            self.display_manager.display_image(image, image_settings=plugin.config.get("image_settings", []))
-                        else:
-                            logger.info(f"Image already displayed, skipping refresh. | refresh_info: {refresh_info}")
+                    refresh_info = refresh_action.get_refresh_info()
+                    refresh_info.update({"refresh_time": current_dt.isoformat(), "image_hash": image_hash})
+                    # check if image is the same as current image
+                    if image_hash != latest_refresh.image_hash:
+                        logger.info(f"Updating display. | refresh_info: {refresh_info}")
+                        self.display_manager.display_image(image, image_settings=plugin.config.get("image_settings", []))
+                    else:
+                        logger.info(f"Image already displayed, skipping refresh. | refresh_info: {refresh_info}")
 
-                        # update latest refresh data in the device config
-                        self.device_config.refresh_info = RefreshInfo(**refresh_info)
-                        self.device_config.write_config()
+                    # update latest refresh data in the device config
+                    self.device_config.refresh_info = RefreshInfo(**refresh_info)
+                    self.device_config.write_config()
 
             except Exception as e:
                 logger.exception('Exception during refresh')
-                self.refresh_result["exception"] = e  # Capture exception
+                if job:
+                    job.result["exception"] = e  # Capture exception for this manual caller
             finally:
-                self.refresh_event.set()
+                if job:
+                    job.event.set()
 
     def manual_update(self, refresh_action):
         """Manually triggers an update for the specified plugin id and plugin settings by notifying the background process."""
         if self.running:
+            job = ManualUpdateJob(refresh_action)
             with self.condition:
-                self.manual_update_request = refresh_action
-                self.refresh_result = {}
-                self.refresh_event.clear()
-
+                self.manual_update_queue.append(job)
                 self.condition.notify_all()  # Wake the thread to process manual update
 
-            self.refresh_event.wait()
-            if self.refresh_result.get("exception"):
-                raise self.refresh_result.get("exception")
+            job.event.wait()
+            if job.result.get("exception"):
+                raise job.result.get("exception")
         else:
             logger.warning("Background refresh task is not running, unable to do a manual update")
 
