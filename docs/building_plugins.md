@@ -1,6 +1,8 @@
 # Building InkyPi Plugins
 
-This guide walks you through the process of creating a new plugin for InkyPi. 
+This guide walks you through the process of creating a new plugin for InkyPi.
+
+InkyPi currently supports Weather and Calendar as built-in product plugins. Third-party plugin installation is no longer part of the supported product scope.
 
 ### 1. Create a Directory for Your Plugin
 
@@ -8,7 +10,7 @@ This guide walks you through the process of creating a new plugin for InkyPi.
 - Create a new directory named after your plugin. The directory name will be the `id` of your plugin and should be all lowercase with no spaces. Example:
 
   ```bash
-  mkdir plugins/clock
+  mkdir plugins/example
   ```
 
 ### 2. Create a Python File and Class for the Plugin
@@ -24,7 +26,7 @@ This guide walks you through the process of creating a new plugin for InkyPi.
     - If there are any issues (e.g., missing configuration options or API keys), raise a `RuntimeError` exception with a clear and concise message to be displayed in the web UI.
 - (Optional) If your settings template requires any additional variables, override the default `generate_settings_template` function
     - In this function, call `BasePlugin`'s `generate_settings_template` method to retrieve the default template parameters. Add any extra key-value pairs needed for your template and return the updated dictionary.
-    - To add the predefined style settings (see the Weather and AI Text plugins in the Web UI) to your plugin settings page, set `style_settings` to True.
+    - To add the predefined style settings (see the Weather and Calendar plugins in the Web UI) to your plugin settings page, set `style_settings` to True.
     - Example:
         ```python
         def generate_settings_template(self):
@@ -65,9 +67,9 @@ If your plugin requires user configuration through the web UI, you’ll need to 
 - Add an object for your plugin using the following structure:
     ```json
     {
-        "display_name": "Clock",    # The name shown in the web UI for the plugin.
-        "id": "clock",              # A unique identifier for the plugin (use lowercase and avoid spaces)
-        "class": "Clock",           # The name of your plugin’s Python class.
+        "display_name": "Example",  # The name shown in the web UI for the plugin.
+        "id": "example",            # A unique identifier for the plugin (use lowercase and avoid spaces)
+        "class": "Example",         # The name of your plugin’s Python class.
         "repository": ""            # GitHub Repositry URL, if the plugin will be published as a third party plugin.
     }
     ```
@@ -149,7 +151,7 @@ You can generate an image by calling the `BasePlugin`'s `render_image` function,
 - The `plugin.html` base template includes all font faces found in the `static/fonts/` directory, making them available for use in your templates
 - The base template also handles style options such as text color, background image or color, margin and frame settings. To apply these styles, pass the `settings` parameter from the `generate_image` function as part of template_params argument with the `plugin_settings` key.
 
-For reference, see the Weather and AI Text plugins.
+For reference, see the Weather and Calendar plugins.
 
 ### Behind the Scenes
 1. The `render_image` function renders the HTML template using the Jinja2 library.
@@ -159,7 +161,7 @@ For reference, see the Weather and AI Text plugins.
 
 ## Publishing a third party plugin
 
-To publish your plugin as a third party plugin for others to install, you'll need to create a new repository. See [Creating a new repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository) in the GitHub documentation.
+Third-party plugin installation is no longer supported by InkyPi. The notes below are retained only for developers maintaining private forks or external experiments.
 
 Note: It’s recommended to name your repository `InkyPi-{plugin_name}` so it’s easy to discover via GitHub search.
 
@@ -185,4 +187,3 @@ Your repository must include:
 See [InkyPi-Plugin-Template](https://github.com/fatihak/InkyPi-Plugin-Template) for a sample template of a third party plugin.
 
 Once you're done, feel free to add your plugin to the [3rd Party Plugin List](https://github.com/fatihak/InkyPi/wiki/3rd-Party-Plugins) and share it in the [🙌 Show and Tell Discussion Board](https://github.com/fatihak/InkyPi/discussions/categories/show-and-tell).
-

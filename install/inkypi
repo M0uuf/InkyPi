@@ -16,7 +16,6 @@ usage() {
     echo ""
     echo "Usage:"
     echo "  inkypi run"
-    echo "  inkypi plugin <subcommand> [args]"
     echo ""
 }
 
@@ -25,16 +24,9 @@ run_app() {
     exec python -u "$(realpath "$PROGRAM_PATH/src/inkypi.py")"
 }
 
-run_plugin_cli() {
-    exec "$PROGRAM_PATH/cli/inkypi-plugin" "$@"
-}
-
 case "$command" in
     run)
         run_app
-        ;;
-    plugin)
-        run_plugin_cli "$@"
         ;;
     ""|-h|--help|help)
         usage
@@ -46,4 +38,3 @@ case "$command" in
         exit 1
         ;;
 esac
-

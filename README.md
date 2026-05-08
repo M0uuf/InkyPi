@@ -11,21 +11,15 @@ InkyPi is an open-source, customizable E-Ink display powered by a Raspberry Pi. 
 - Web Interface allows you to update and configure the display from any device on your network
 - Minimize distractions: no LEDS, noise, or notifications, just the content you care about
 - Easy installation and configuration, perfect for beginners and makers alike
-- Open source project allowing you to modify, customize, and create your own plugins
+- Focused built-in plugin set for weather and calendar dashboards
 - Set up scheduled playlists to display different plugins at designated times
 
-**Plugins**:
+**Supported built-in plugins**:
 
-- Image Upload: Upload and display any image from your browser
-- Daily Newspaper/Comic: Show daily comics and front pages of major newspapers from around the world
-- Clock: Customizable clock faces for displaying time
-- AI Image/Text: Generate images and dynamic text from prompts using OpenAI's models
 - Weather: Display current weather conditions and multi-day forecasts with a customizable layout
 - Calendar: Visualize your calendar from Google, Outlook, or Apple Calendar with customizable layouts
 
-And additional plugins coming soon! For documentation on building custom plugins, see [Building InkyPi Plugins](./docs/building_plugins.md).
-
-See [the wiki](https://github.com/fatihak/InkyPi/wiki) for a list of community-maintained third-party plugins.
+Other previously built-in plugins and third-party plugin installation are no longer supported.
 
 ## Hardware 
 - Raspberry Pi (4 | 3 | Zero 2 W)
@@ -101,8 +95,8 @@ sudo bash install/uninstall.sh
 ## Roadmap
 The InkyPi project is constantly evolving, with many exciting features and improvements planned for the future.
 
-- Plugins, plugins, plugins
-- Modular layouts to mix and match plugins
+- Weather and calendar performance improvements
+- Simpler playlist workflows
 - Support for buttons with customizable action bindings
 - Improved Web UI on mobile devices
 

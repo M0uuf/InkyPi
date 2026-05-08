@@ -13,9 +13,6 @@ This project uses various fonts and icons, each with specific licensing terms. B
 ## Icons
 | Name | Attribution |
 |---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| <img src="../src/plugins/clock/icon.png" width="32" height="32"> | <a href="https://www.flaticon.com/free-icons/clock" title="clock icons">Clock icons created by dmitri13 - Flaticon</a>|
-| <img src="../src/plugins/image_upload/icon.png" width="32" height="32"> | <a href="https://www.flaticon.com/free-icons/picture" title="picture icons">Picture icons created by Pixel perfect - Flaticon</a>|
-| <img src="../src/plugins/newspaper/icon.png" width="32" height="32"> | <a href="https://www.flaticon.com/free-icons/paper" title="paper icons">Paper icons created by Freepik - Flaticon</a>|
 | <img src="../src/plugins/weather/icon.png" width="32" height="32"> | <a href="https://www.flaticon.com/free-icons/sunny" title="sunny icons">Sunny icons created by kosonicon - Flaticon</a>|
 | <img src="../src/static/icons/display.png" width="32" height="32"> | <a href="https://www.flaticon.com/free-icons/music-and-multimedia" title="music and multimedia icons">Music and multimedia icons created by Archival - Flaticon</a>|
 | <img src="../src/static/icons/edit.png" width="32" height="32"> | <a href="https://www.flaticon.com/free-icons/modify" title="modify icons">Modify icons created by Freepik - Flaticon</a>|

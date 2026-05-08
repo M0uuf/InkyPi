@@ -134,9 +134,11 @@ update_app_service() {
   fi
 }
 
-update_cli() {
-  cp -r "$SCRIPT_DIR/cli" "$INSTALL_PATH/"
-  sudo chmod +x "$INSTALL_PATH/cli/"*
+remove_legacy_cli() {
+  if [ -d "$INSTALL_PATH/cli" ]; then
+    rm -rf "$INSTALL_PATH/cli"
+    echo_success "Removed legacy plugin CLI."
+  fi
 }
 
 # Get OS release number, e.g. 11=Bullseye, 12=Bookworm, 13=Trixe
@@ -211,6 +213,13 @@ if $VENV_PATH/bin/python -m pip show inky > /dev/null 2>&1; then
   $VENV_PATH/bin/python -m pip uninstall -y inky > /dev/null && echo_success "Removed obsolete inky package."
 fi
 
+for obsolete_package in openai numpy feedparser; do
+  if $VENV_PATH/bin/python -m pip show "$obsolete_package" > /dev/null 2>&1; then
+    echo "Removing obsolete plugin dependency: $obsolete_package"
+    $VENV_PATH/bin/python -m pip uninstall -y "$obsolete_package" > /dev/null && echo_success "Removed obsolete $obsolete_package package."
+  fi
+done
+
 echo "Updating executable in ${BINPATH}/$APPNAME"
 cp $SCRIPT_DIR/inkypi $BINPATH/
 sudo chmod +x $BINPATH/$APPNAME
@@ -219,6 +228,6 @@ echo "Update JS and CSS files"
 bash $SCRIPT_DIR/update_vendors.sh > /dev/null
 
 update_app_service
-update_cli
+remove_legacy_cli
 
 echo_success "Update completed."

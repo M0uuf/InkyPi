@@ -8,25 +8,7 @@
     "orientation": "horizontal",
     "plugin_order": [
         "calendar",
-        "ai_image",
-        "ai_text",
-        "clock",
-        "comic",
-        "countdown",
-        "github",
-        "image_album",
-        "image_folder",
-        "image_upload",
-        "apod",
-        "image_url",
-        "newspaper",
-        "rss",
-        "screenshot",
-        "todo_list",
-        "unsplash",
-        "weather",
-        "wpotd",
-        "year_progress"
+        "weather"
     ],
     "playlist_config": {
         "playlists": [

@@ -61,7 +61,7 @@ devbox run dev # alternatively run `devbox shell` and then run `python src/inkyp
 
 ## What You Can Do
 
-- **Develop plugins** - Create new plugins without hardware (no Raspberry Pi, nor physical displays)
+- **Develop supported plugins** - Work on Weather and Calendar without hardware (no Raspberry Pi, nor physical displays)
 - **Test UI changes** - Instant feedback on web interface modifications  
 - **Debug issues** - Full error messages in terminal
 - **Verify rendering** - Check output in `mock_display_output/latest.png`
@@ -103,7 +103,7 @@ exit                                 # Exit devbox shell and deactivates Python 
 ## Development Tips
 
 1. **Check rendered output**: Images are saved to `mock_display_output/`
-2. **Plugin development**: Copy an existing plugin as template (e.g., `clock/`)
+2. **Plugin development**: Use `weather/`, `calendar/`, and `base_plugin/` as references
 3. **Configuration**: Edit `src/config/device_dev.json` for display settings
 4. **Hot reload**: Restart server to see code changes
 

@@ -7,6 +7,8 @@ from model import PlaylistManager, RefreshInfo
 logger = logging.getLogger(__name__)
 
 class Config:
+    SUPPORTED_PLUGIN_IDS = {"weather", "calendar"}
+
     # Base path for the project directory
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -22,6 +24,8 @@ class Config:
     def __init__(self):
         self.config = self.read_config()
         self.plugins_list = self.read_plugins_list()
+        if self.sanitize_plugin_config():
+            self.write_raw_config()
         self.playlist_manager = self.load_playlist_manager()
         self.refresh_info = self.load_refresh_info()
 
@@ -36,10 +40,12 @@ class Config:
         return config
 
     def read_plugins_list(self):
-        """Reads the plugin-info.json config JSON from each plugin folder. Excludes the base plugin."""
+        """Reads supported built-in plugin-info.json config files."""
         # Iterate over all plugin folders
         plugins_list = []
         for plugin in sorted(os.listdir(os.path.join(self.BASE_DIR, "plugins"))):
+            if plugin not in self.SUPPORTED_PLUGIN_IDS:
+                continue
             plugin_path = os.path.join(self.BASE_DIR, "plugins", plugin)
             if os.path.isdir(plugin_path) and plugin != "__pycache__":
                 # Check if the plugin-info.json file exists
@@ -51,6 +57,63 @@ class Config:
                     plugins_list.append(plugin_info)
 
         return plugins_list
+
+    def sanitize_plugin_config(self):
+        """Remove references to built-in plugins that are no longer supported."""
+        changed = False
+
+        plugin_order = self.config.get("plugin_order")
+        if plugin_order:
+            supported_order = [plugin_id for plugin_id in plugin_order if plugin_id in self.SUPPORTED_PLUGIN_IDS]
+            removed = [plugin_id for plugin_id in plugin_order if plugin_id not in self.SUPPORTED_PLUGIN_IDS]
+            if removed:
+                logger.warning("Ignoring unsupported plugin_order entries: %s", ", ".join(sorted(set(removed))))
+                self.config["plugin_order"] = supported_order
+                changed = True
+
+        playlist_config = self.config.get("playlist_config", {})
+        for playlist in playlist_config.get("playlists", []):
+            plugins = playlist.get("plugins", [])
+            supported_plugins = [
+                plugin for plugin in plugins
+                if plugin.get("plugin_id") in self.SUPPORTED_PLUGIN_IDS
+            ]
+            removed_plugins = [
+                plugin.get("plugin_id", "unknown")
+                for plugin in plugins
+                if plugin.get("plugin_id") not in self.SUPPORTED_PLUGIN_IDS
+            ]
+            if removed_plugins:
+                playlist_name = playlist.get("name", "Unnamed")
+                logger.warning(
+                    "Ignoring unsupported plugin instances in playlist '%s': %s",
+                    playlist_name,
+                    ", ".join(sorted(set(removed_plugins)))
+                )
+                playlist["plugins"] = supported_plugins
+                playlist["current_plugin_index"] = None
+                changed = True
+
+        refresh_info = self.config.get("refresh_info", {})
+        refresh_plugin_id = refresh_info.get("plugin_id")
+        if refresh_plugin_id and refresh_plugin_id not in self.SUPPORTED_PLUGIN_IDS:
+            logger.warning("Clearing refresh_info for unsupported plugin '%s'.", refresh_plugin_id)
+            self.config["refresh_info"] = {
+                "refresh_time": None,
+                "image_hash": None,
+                "refresh_type": None,
+                "plugin_id": None
+            }
+            changed = True
+
+        return changed
+
+    def write_raw_config(self):
+        """Writes the current config dictionary without syncing model objects first."""
+        logger.debug(f"Writing sanitized device config to {self.config_file}")
+        with open(self.config_file, 'w') as outfile:
+            json.dump(self.config, outfile, indent=4)
+            outfile.write("\n")
 
     def write_config(self):
         """Updates the cached config from the model objects and writes to the config file."""
@@ -93,6 +156,9 @@ class Config:
 
     def get_plugin(self, plugin_id):
         """Finds and returns a plugin config by its ID."""
+        if plugin_id not in self.SUPPORTED_PLUGIN_IDS:
+            logger.warning("Unsupported plugin requested: %s", plugin_id)
+            return None
         return next((plugin for plugin in self.plugins_list if plugin['id'] == plugin_id), None)
 
     def get_resolution(self):
