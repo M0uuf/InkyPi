@@ -11,6 +11,7 @@ PLUGINS_DIR = 'plugins'
 PLUGIN_CLASSES = {}
 
 def load_plugins(plugins_config):
+    PLUGIN_CLASSES.clear()
     plugins_module_path = Path(resolve_path(PLUGINS_DIR))
     for plugin in plugins_config:
         plugin_id = plugin.get('id')

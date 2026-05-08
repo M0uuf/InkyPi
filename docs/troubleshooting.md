@@ -51,9 +51,9 @@ sudo /usr/local/bin/inkypi -d
 
 ## API Key not configured
 
-Some plugins require API Keys to be configured in order to run. These need to be configured in a .env file at the root of the project. See [API Keys](api_keys.md) for details.
+The Weather plugin requires an API key when using OpenWeatherMap. API keys need to be configured in a .env file at the root of the project. See [API Keys](api_keys.md) for details.
 
-## Clock/Sunset/Sunrise Time is wrong
+## Weather Sunset/Sunrise Time is wrong
 
 If the displayed time is incorrect, your timezone setting may not be configured. You can update this in the Settings page of the Web UI.
 
@@ -115,14 +115,6 @@ curl -L -O https://raw.githubusercontent.com/waveshareteam/e-Paper/refs/heads/ma
 
 Once the files are in place, rerun the installation script. The script will detect the driver locally and skip the download step.
 
-## Today's Newspaper not found
-
-Daily newspaper front pages are sourced from [Freedom Forum](https://frontpages.freedomforum.org/gallery). The list of available newspapers may change periodically. InkyPi maintains an up-to-date list of newspapers provided by Freedom Forum, but there may be times when the list becomes outdated.
-
-If you encounter this error, please feel free to open an Issue, including the name of the newspaper you were trying to access, and we'll work to update the list.
-
-Also consider supporting the important work of Freedom Forum, an organization dedicated to promoting and protecting free press and the First Amendment: https://www.freedomforum.org/take-action/
-
 ## Known Issues during Pi Zero W Installation
 
 Due to limitations with the Pi Zero W, there are some known issues during the InkyPi installation process. For more details and community discussion, refer to this [GitHub Issue](https://github.com/fatihak/InkyPi/issues/5).
@@ -141,30 +133,6 @@ source "/usr/local/inkypi/venv_inkypi/bin/activate"
 pip install -r install/requirements.txt
 deactivate
 ```
-Restart the inkypi service to apply the changes:
-```bash
-sudo systemctl restart inkypi.service
-```
-
-### Numpy ImportError
-
-#### Error message
-```bash
-ImportError: Error importing numpy: you should not try to import numpy from
-its source directory; please exit the numpy source tree, and relaunch
-your python interpreter from there.
-```
-
-#### Recommended solution
-To resolve this issue, manually reinstall the Pillow library in the inkypi virtual environment:
-```bash
-sudo su
-source "/usr/local/inkypi/venv_inkypi/bin/activate"
-pip uninstall Pillow
-pip install Pillow
-deactivate
-```
-
 Restart the inkypi service to apply the changes:
 ```bash
 sudo systemctl restart inkypi.service

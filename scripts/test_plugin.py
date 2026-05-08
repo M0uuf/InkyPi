@@ -1,10 +1,11 @@
-import json
 from src.plugins.plugin_registry import load_plugins, get_plugin_instance
 from src.utils.image_utils import resize_image, change_orientation
 from unittest.mock import patch, MagicMock
 from PIL import Image
+import json
+import os
+import icalendar
 
-PLUGIN_CONFIG_FILE = "install/config_base/plugins.json"
 RESOLUTIONS = [
     [640, 400], # Waveshare 4.0" e-Paper
     [800, 480], # Waveshare 7.3" e-Paper
@@ -13,26 +14,19 @@ RESOLUTIONS = [
 ]
 ORIENTATIONS = ["horizontal", "vertical"]
 
-plugin_id = "ai_text"
+plugin_id = "calendar"
 plugin_settings = {
-    "title": "Today In History",
-    "textModel": "gpt-4o",
-    "textPrompt": "idk",
-    "selectedFrame": "Rectangle"
+    "calendarURLs[]": ["https://example.com/calendar.ics"],
+    "calendarColors[]": ["#4285f4"],
+    "viewMode": "timeGridDay"
 }
 
 mock_device_config = MagicMock()
-with open(PLUGIN_CONFIG_FILE) as f:
-    plugins = json.load(f)
+plugin_info_file = os.path.join("src", "plugins", plugin_id, "plugin-info.json")
+with open(plugin_info_file) as f:
+    plugin_config = json.load(f)
 
-plugin_config = [config for config in plugins if config.get('id') == plugin_id]
-
-if not plugin_config:
-    exit(f"Plugin {plugin_id} not found in plugin config file: {PLUGIN_CONFIG_FILE}")
-
-load_plugins(plugin_config)
-
-plugin_config = plugin_config[0]
+load_plugins([plugin_config])
 plugin_instance = get_plugin_instance(plugin_config)
 
 total_height = sum([max(resolution) for resolution in RESOLUTIONS])
@@ -45,9 +39,15 @@ for resolution in RESOLUTIONS:
     width, height = resolution
     for orientation in ORIENTATIONS:
         mock_device_config.get_resolution.return_value = resolution
-        mock_device_config.get_config.return_value = orientation
+        mock_device_config.get_config.side_effect = lambda key, default=None: {
+            "orientation": orientation,
+            "timezone": "UTC",
+            "time_format": "24h"
+        }.get(key, default)
 
-        img = plugin_instance.generate_image(plugin_settings, mock_device_config)
+        with patch.object(plugin_instance, "fetch_calendar") as mock_fetch_calendar:
+            mock_fetch_calendar.return_value = icalendar.Calendar()
+            img = plugin_instance.generate_image(plugin_settings, mock_device_config)
 
         # post processing thats applied before being displayed
         img = change_orientation(img, orientation)

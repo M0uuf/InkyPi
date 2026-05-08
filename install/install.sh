@@ -292,11 +292,6 @@ install_src() {
   show_loader "\tCreating symlink from $SRC_PATH to $INSTALL_PATH/src"
 }
 
-install_cli() {
-  cp -r "$SCRIPT_DIR/cli" "$INSTALL_PATH/"
-  sudo chmod +x "$INSTALL_PATH/cli/"*
-}
-
 # Get Raspberry Pi hostname
 get_hostname() {
   echo "$(hostname)"
@@ -351,7 +346,6 @@ else
 fi
 setup_earlyoom_service
 install_src
-install_cli
 install_config
 resolve_waveshare_type
 fetch_waveshare_driver
