@@ -1,6 +1,7 @@
 import pytest
+from datetime import datetime
 
-from src.model import Playlist
+from src.model import Playlist, PluginInstance
 
 class TestPlaylist:
 
@@ -49,4 +50,96 @@ class TestPlaylist:
         playlist = Playlist("Test Playlist", start, end)
         assert playlist.is_active(current) == expected
         assert playlist.get_priority() == priority
-        
+
+
+def test_scheduled_plugin_does_not_refresh_before_configured_time_without_history():
+    plugin = PluginInstance("weather", "Weather", {}, {"scheduled": "08:00"})
+
+    assert not plugin.should_refresh(datetime.fromisoformat("2026-05-09T07:59:00"))
+
+
+def test_scheduled_plugin_refreshes_at_configured_time_without_history():
+    plugin = PluginInstance("weather", "Weather", {}, {"scheduled": "08:00"})
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:00:00"))
+
+
+def test_scheduled_plugin_accepts_timezone_aware_current_time():
+    plugin = PluginInstance("weather", "Weather", {}, {"scheduled": "08:00"})
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:00:00+02:00"))
+
+
+def test_scheduled_plugin_refreshes_after_configured_time_once_per_day():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"scheduled": "08:00"},
+        latest_refresh_time="2026-05-08T08:05:00"
+    )
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:01:00"))
+
+    plugin.latest_refresh_time = "2026-05-09T08:01:00"
+    assert not plugin.should_refresh(datetime.fromisoformat("2026-05-09T12:00:00"))
+
+
+def test_scheduled_plugin_refreshes_if_last_refresh_today_before_scheduled_time():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"scheduled": "08:00"},
+        latest_refresh_time="2026-05-09T07:30:00"
+    )
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:00:00"))
+
+
+def test_playlist_selects_next_due_plugin_without_advancing_when_none_due():
+    playlist = Playlist("Default", "00:00", "24:00", [
+        {
+            "plugin_id": "weather",
+            "name": "Weather",
+            "plugin_settings": {},
+            "refresh": {"interval": 300},
+            "latest_refresh_time": "2026-05-09T08:00:00"
+        },
+        {
+            "plugin_id": "calendar",
+            "name": "Calendar",
+            "plugin_settings": {},
+            "refresh": {"interval": 300},
+            "latest_refresh_time": "2026-05-09T08:00:00"
+        }
+    ], current_plugin_index=0)
+
+    plugin = playlist.find_next_refreshable_plugin(datetime.fromisoformat("2026-05-09T08:04:00"))
+
+    assert plugin is None
+    assert playlist.current_plugin_index == 0
+
+
+def test_playlist_scans_forward_to_next_due_plugin():
+    playlist = Playlist("Default", "00:00", "24:00", [
+        {
+            "plugin_id": "weather",
+            "name": "Weather",
+            "plugin_settings": {},
+            "refresh": {"interval": 300},
+            "latest_refresh_time": "2026-05-09T08:00:00"
+        },
+        {
+            "plugin_id": "calendar",
+            "name": "Calendar",
+            "plugin_settings": {},
+            "refresh": {"interval": 300},
+            "latest_refresh_time": "2026-05-09T07:55:00"
+        }
+    ], current_plugin_index=0)
+
+    plugin = playlist.find_next_refreshable_plugin(datetime.fromisoformat("2026-05-09T08:01:00"))
+
+    assert plugin.name == "Calendar"
+    assert playlist.current_plugin_index == 1

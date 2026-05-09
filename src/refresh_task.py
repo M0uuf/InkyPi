@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from plugins.plugin_registry import get_plugin_instance
 from utils.image_utils import compute_image_hash
 from utils.performance import PerformanceDiagnostics, is_performance_diagnostics_enabled
-from model import RefreshInfo, PlaylistManager
+from model import RefreshInfo
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,7 @@ class ManualUpdateJob:
 
 class RefreshTask:
     """Handles the logic for refreshing the display using a background thread."""
+    DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS = 60
 
     def __init__(self, device_config, display_manager):
         self.device_config = device_config
@@ -131,7 +132,7 @@ class RefreshTask:
             try:
                 diagnostics = self._performance_diagnostics()
                 with self.condition:
-                    sleep_time = self.device_config.get_config("plugin_cycle_interval_seconds", default=60*60)
+                    sleep_time = self._get_scheduler_check_interval_seconds()
 
                     # Exit promptly if `stop()` was called while a refresh was executing.
                     if not self.running:
@@ -305,8 +306,32 @@ class RefreshTask:
         tz_str = self.device_config.get_config("timezone", default="UTC")
         return datetime.now(pytz.timezone(tz_str))
 
+    def _get_scheduler_check_interval_seconds(self):
+        configured_interval = self.device_config.get_config(
+            "scheduler_check_interval_seconds",
+            default=self.DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS
+        )
+        try:
+            interval = int(configured_interval)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid scheduler_check_interval_seconds value %r. Using %s.",
+                configured_interval,
+                self.DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS
+            )
+            return self.DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS
+
+        if interval < 1:
+            logger.warning(
+                "Invalid scheduler_check_interval_seconds value %r. Using %s.",
+                configured_interval,
+                self.DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS
+            )
+            return self.DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS
+        return interval
+
     def _determine_next_plugin(self, playlist_manager, latest_refresh_info, current_dt):
-        """Determines the next plugin to refresh based on the active playlist, plugin cycle interval, and current time."""
+        """Determines the next plugin to refresh based on the active playlist and plugin refresh rules."""
         playlist = playlist_manager.determine_active_playlist(current_dt)
         if not playlist:
             playlist_manager.active_playlist = None
@@ -318,16 +343,11 @@ class RefreshTask:
             logger.info(f"Active playlist '{playlist.name}' has no plugins.")
             return None, None
 
-        latest_refresh_dt = latest_refresh_info.get_refresh_datetime()
-        plugin_cycle_interval = self.device_config.get_config("plugin_cycle_interval_seconds", default=3600)
-        should_refresh = PlaylistManager.should_refresh(latest_refresh_dt, plugin_cycle_interval, current_dt)
-
-        if not should_refresh:
-            latest_refresh_str = latest_refresh_dt.strftime('%Y-%m-%d %H:%M:%S') if latest_refresh_dt else "None"
-            logger.info(f"Not time to update display. | latest_update: {latest_refresh_str} | plugin_cycle_interval: {plugin_cycle_interval}")
+        plugin = playlist.find_next_refreshable_plugin(current_dt)
+        if not plugin:
+            logger.info(f"No plugin refresh due. | active_playlist: {playlist.name}")
             return None, None
 
-        plugin = playlist.get_next_plugin()
         logger.info(f"Determined next plugin. | active_playlist: {playlist.name} | plugin_instance: {plugin.name}")
 
         return playlist, plugin
