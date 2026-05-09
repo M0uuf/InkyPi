@@ -336,7 +336,7 @@
         <div class="app-header">
             <div class="header-content">
                 <div class="title-container">
-                    <img src="{{ url_for('plugin.image', plugin_id=plugin.id, filename='icon.png') }}" alt="{{ plugin.display_name }} icon" class="app-icon">
+                    <img src="{{ url_for('plugin.image', plugin_id=plugin.id, filename='icon.png', v=plugin.icon_version|default('')) }}" alt="{{ plugin.display_name }} icon" class="app-icon" decoding="async">
                     <h1 class="app-title">{{ plugin.display_name }}</h1>
                     {% if api_key and api_key.required %}<span class="api-key-label" title="{{api_key.service}} (Set {{api_key.expected_key}} in .env)">Requires API Key</span>{% endif %}
                 </div>
@@ -374,6 +374,8 @@
                                         <img
                                             src="{{ url_for('plugin.image', plugin_id='base_plugin', filename=frame.icon) }}"
                                             alt="{{ frame.name }}"
+                                            loading="lazy"
+                                            decoding="async"
                                         />
                                     </div>
                                     {% endfor %}

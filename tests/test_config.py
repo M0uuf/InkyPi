@@ -52,6 +52,7 @@ def test_config_loads_only_supported_builtin_plugins(tmp_path):
         Config.config_file = original_config_file
 
     assert [plugin["id"] for plugin in config.get_plugins()] == ["weather", "calendar"]
+    assert all(plugin["icon_version"].isdigit() for plugin in config.get_plugins())
     assert config.get_config("plugin_order") == ["weather", "calendar"]
     playlist = config.get_playlist_manager().get_playlist("Default")
     assert [plugin.plugin_id for plugin in playlist.plugins] == ["weather"]

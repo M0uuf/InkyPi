@@ -2,12 +2,19 @@ from flask import Blueprint, request, jsonify, current_app, render_template, sen
 from plugins.plugin_registry import get_plugin_instance
 from utils.app_utils import resolve_path, handle_request_files, parse_form
 from refresh_task import ManualRefresh, PlaylistRefresh, ManualUpdateBusy
+from werkzeug.security import safe_join
+from functools import lru_cache
 import json
 import os
 import logging
 
 logger = logging.getLogger(__name__)
 plugin_bp = Blueprint("plugin", __name__)
+PLUGIN_ASSET_CACHE_SECONDS = 30 * 24 * 60 * 60
+
+@lru_cache(maxsize=1)
+def _plugins_dir():
+    return os.path.abspath(resolve_path("plugins"))
 
 def _delete_plugin_instance_images(device_config, plugin_instance_obj):
     """Delete all images associated with a plugin instance."""
@@ -57,8 +64,6 @@ def _accepted_refresh_job_response(refresh_task, refresh_action):
         "job": job
     }), 202
 
-# Removed module-level PLUGINS_DIR - will resolve dynamically in route handlers
-
 @plugin_bp.route('/plugin/<plugin_id>')
 def plugin_page(plugin_id):
     device_config = current_app.config['DEVICE_CONFIG']
@@ -93,19 +98,11 @@ def plugin_page(plugin_id):
 
 @plugin_bp.route('/images/<plugin_id>/<path:filename>')
 def image(plugin_id, filename):
-    # Resolve plugins directory dynamically
-    plugins_dir = resolve_path("plugins")
-
-    # Construct the full path to the plugin's file
-    plugin_dir = os.path.join(plugins_dir, plugin_id)
-
-    # Security check to prevent directory traversal
-    safe_path = os.path.abspath(os.path.join(plugin_dir, filename))
-    if not safe_path.startswith(os.path.abspath(plugins_dir)):
+    plugins_dir = _plugins_dir()
+    abs_plugin_dir = safe_join(plugins_dir, plugin_id)
+    safe_path = safe_join(plugins_dir, plugin_id, filename)
+    if not abs_plugin_dir or not safe_path:
         return "Invalid path", 403
-
-    # Convert to absolute path for send_from_directory
-    abs_plugin_dir = os.path.abspath(plugin_dir)
 
     # Check if the directory and file exist
     if not os.path.isdir(abs_plugin_dir):
@@ -116,8 +113,17 @@ def image(plugin_id, filename):
         logger.error(f"File not found: {safe_path}")
         return "File not found", 404
 
-    # Serve the file from the plugin directory
-    return send_from_directory(abs_plugin_dir, filename)
+    response = send_from_directory(
+        abs_plugin_dir,
+        filename,
+        conditional=True,
+        max_age=PLUGIN_ASSET_CACHE_SECONDS if request.args.get("v") else 0
+    )
+    if request.args.get("v"):
+        response.headers["Cache-Control"] = f"public, max-age={PLUGIN_ASSET_CACHE_SECONDS}, immutable"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 @plugin_bp.route('/plugin_instance_image/<path:playlist_name>/<path:plugin_id>/<path:instance_name>')
 def plugin_instance_image(playlist_name, plugin_id, instance_name):
