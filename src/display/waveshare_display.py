@@ -2,6 +2,7 @@ import inspect
 import importlib
 import logging
 import sys
+import time
 
 from display.abstract_display import AbstractDisplay
 from PIL import Image
@@ -9,6 +10,27 @@ from pathlib import Path
 from plugins.plugin_registry import get_plugin_instance
 
 logger = logging.getLogger(__name__)
+
+
+def get_bool_config(device_config, key, default):
+    """Read a boolean config value, accepting common string forms."""
+    value = device_config.get_config(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized_value = value.strip().lower()
+        if normalized_value in {"1", "true", "yes", "on"}:
+            return True
+        if normalized_value in {"0", "false", "no", "off"}:
+            return False
+        logger.warning(
+            "Invalid boolean config value for %s: %r. Using default %s.",
+            key,
+            value,
+            default
+        )
+        return default
+    return bool(value)
 
 
 def split_image_for_bi_color_epd(image):
@@ -120,23 +142,65 @@ class WaveshareDisplay(AbstractDisplay):
         if not image:
             raise ValueError(f"No image provided.")
 
-        # Assume device was in sleep mode.
-        self.epd_display_init()
+        reinitialize_before_display = get_bool_config(
+            self.device_config,
+            "waveshare_reinitialize_before_display",
+            True
+        )
+        clear_before_display = get_bool_config(
+            self.device_config,
+            "waveshare_clear_before_display",
+            True
+        )
+        sleep_after_display = get_bool_config(
+            self.device_config,
+            "waveshare_sleep_after_display",
+            True
+        )
 
-        # Clear residual pixels before updating the image.
-        self.epd_display.Clear()
+        if sleep_after_display and not reinitialize_before_display:
+            logger.warning(
+                "waveshare_reinitialize_before_display=false is unsafe while "
+                "waveshare_sleep_after_display=true; forcing reinitialize before display."
+            )
+            reinitialize_before_display = True
 
-        # Display the image on the WS display.
+        if reinitialize_before_display:
+            init_started = time.monotonic()
+            # Assume device was in sleep mode.
+            self.epd_display_init()
+            logger.info("Waveshare init completed in %.2fs", time.monotonic() - init_started)
+        else:
+            logger.info("Skipping Waveshare init before display.")
+
+        if clear_before_display:
+            clear_started = time.monotonic()
+            # Clear residual pixels before updating the image.
+            self.epd_display.Clear()
+            logger.info("Waveshare clear completed in %.2fs", time.monotonic() - clear_started)
+        else:
+            logger.info("Skipping Waveshare clear before display.")
+
+        buffer_started = time.monotonic()
         if not self.bi_color_display:
-            self.epd_display.display(self.epd_display.getbuffer(image))
+            display_buffers = (self.epd_display.getbuffer(image),)
         else:
             black_layer, red_layer = split_image_for_bi_color_epd(image)
-
-            self.epd_display.display(
+            display_buffers = (
                 self.epd_display.getbuffer(black_layer),
                 self.epd_display.getbuffer(red_layer),
             )
+        logger.info("Waveshare buffer conversion completed in %.2fs", time.monotonic() - buffer_started)
 
-        # Put device into low power mode (EPD displays maintain image when powered off)
-        logger.info("Putting Waveshare display into sleep mode for power saving.")
-        self.epd_display.sleep()
+        display_started = time.monotonic()
+        self.epd_display.display(*display_buffers)
+        logger.info("Waveshare display update completed in %.2fs", time.monotonic() - display_started)
+
+        if sleep_after_display:
+            sleep_started = time.monotonic()
+            # Put device into low power mode (EPD displays maintain image when powered off)
+            logger.info("Putting Waveshare display into sleep mode for power saving.")
+            self.epd_display.sleep()
+            logger.info("Waveshare sleep completed in %.2fs", time.monotonic() - sleep_started)
+        else:
+            logger.info("Skipping Waveshare sleep after display.")

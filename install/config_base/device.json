@@ -1,6 +1,9 @@
 {
     "name": "InkyPi",
     "display_type": "epd7in3f",
+    "waveshare_reinitialize_before_display": true,
+    "waveshare_clear_before_display": true,
+    "waveshare_sleep_after_display": true,
     "web_server_threads": 2,
     "orientation": "horizontal",
     "inverted_image": false,
