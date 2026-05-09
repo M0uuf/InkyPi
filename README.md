@@ -110,6 +110,8 @@ This project has been tested with several Waveshare models. **Displays based on 
 
 If your display model has a corresponding driver in the link above, it’s likely to be compatible. When running the installation script, use the -W option to specify your display model (without the .py extension). The script will automatically fetch and install the correct driver.
 
+Waveshare refresh behavior can be tuned in `src/config/device.json`. By default InkyPi reinitializes the panel, clears it, displays the image, and puts the panel to sleep after every update. Advanced users can set `waveshare_clear_before_display`, `waveshare_sleep_after_display`, or `waveshare_reinitialize_before_display` to `false` to reduce update time on panels that tolerate it. Disabling clear can increase ghosting or visual artifacts, and disabling sleep can increase power use, so keep the defaults unless you have tested your panel. Skipping reinitialization is only honored when `waveshare_sleep_after_display` is also `false`; if the panel is put to sleep, InkyPi forces reinitialization before the next update.
+
 ## License
 
 Distributed under the GPL 3.0 License, see [LICENSE](./LICENSE) for more information.
