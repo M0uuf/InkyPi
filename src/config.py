@@ -57,6 +57,9 @@ class Config:
                     logger.debug(f"Reading plugin info from {plugin_info_file}")
                     with open(plugin_info_file) as f:
                         plugin_info = json.load(f)
+                    icon_path = os.path.join(plugin_path, "icon.png")
+                    if os.path.isfile(icon_path):
+                        plugin_info["icon_version"] = str(int(os.path.getmtime(icon_path)))
                     plugins_list.append(plugin_info)
 
         return plugins_list

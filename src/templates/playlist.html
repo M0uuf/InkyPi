@@ -450,9 +450,10 @@
                     <!-- Plugin List -->
                     <div class="plugin-list">
                         {% for plugin_instance in playlist.plugins %}
+                        {% set plugin_config = plugins.get(plugin_instance.plugin_id) %}
                         <div class="plugin-item">
                             <div class="plugin-info" id="{{plugin_instance.name}}">
-                                <img src="{{ url_for('plugin.image', plugin_id=plugin_instance.plugin_id, filename='icon.png') }}" alt="Plugin Icon" class="plugin-icon">
+                                <img src="{{ url_for('plugin.image', plugin_id=plugin_instance.plugin_id, filename='icon.png', v=plugin_config.icon_version|default('')) }}" alt="Plugin Icon" class="plugin-icon" loading="lazy" decoding="async">
                                 <span class="plugin-instance">{{ plugin_instance.name }}</span>
 
                                 <!-- Thumbnail preview - only show if image has been generated -->
@@ -462,6 +463,8 @@
                                         src="{{ url_for('plugin.plugin_instance_image', playlist_name=playlist.name, plugin_id=plugin_instance.plugin_id, instance_name=plugin_instance.name) }}"
                                         alt="Preview"
                                         class="plugin-thumbnail"
+                                        loading="lazy"
+                                        decoding="async"
                                         title="Click to view full size"
                                         onerror="this.parentElement.style.display='none';"
                                     >

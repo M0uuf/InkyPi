@@ -11,6 +11,7 @@ flask = pytest.importorskip("flask")
 Flask = flask.Flask
 
 from blueprints.playlist import playlist_bp
+from blueprints import plugin as plugin_module
 from blueprints.plugin import plugin_bp
 from refresh_task import ManualUpdateBusy
 
@@ -176,3 +177,37 @@ def test_refresh_job_status_returns_404_for_unknown_job():
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Refresh job not found"
+
+
+def test_plugin_image_route_caches_static_plugin_assets(monkeypatch, tmp_path):
+    plugins_dir = tmp_path / "plugins"
+    plugin_dir = plugins_dir / "weather"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "icon.png").write_bytes(b"fake png")
+
+    plugin_module._plugins_dir.cache_clear()
+    monkeypatch.setattr(plugin_module, "resolve_path", lambda path: str(plugins_dir))
+    app = Flask(__name__)
+    app.register_blueprint(plugin_bp)
+
+    response = app.test_client().get("/images/weather/icon.png")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == (
+        f"public, max-age={plugin_module.PLUGIN_ASSET_CACHE_SECONDS}, immutable"
+    )
+    assert response.headers["ETag"]
+
+
+def test_plugin_image_route_rejects_path_traversal(monkeypatch, tmp_path):
+    plugins_dir = tmp_path / "plugins"
+    (plugins_dir / "weather").mkdir(parents=True)
+
+    plugin_module._plugins_dir.cache_clear()
+    monkeypatch.setattr(plugin_module, "resolve_path", lambda path: str(plugins_dir))
+    app = Flask(__name__)
+    app.register_blueprint(plugin_bp)
+
+    response = app.test_client().get("/images/weather/../calendar/icon.png")
+
+    assert response.status_code == 403
