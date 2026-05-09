@@ -112,6 +112,8 @@ If your display model has a corresponding driver in the link above, it’s likel
 
 Waveshare refresh behavior can be tuned in `src/config/device.json`. By default InkyPi reinitializes the panel, clears it, displays the image, and puts the panel to sleep after every update. Advanced users can set `waveshare_clear_before_display`, `waveshare_sleep_after_display`, or `waveshare_reinitialize_before_display` to `false` to reduce update time on panels that tolerate it. Disabling clear can increase ghosting or visual artifacts, and disabling sleep can increase power use, so keep the defaults unless you have tested your panel. Skipping reinitialization is only honored when `waveshare_sleep_after_display` is also `false`; if the panel is put to sleep, InkyPi forces reinitialization before the next update.
 
+HTML-rendered plugins cache exact screenshot outputs to reduce repeated Chromium startup cost. The default cache directory is created with private permissions. If you override it with `INKYPI_HTML_RENDER_CACHE_DIR`, choose a private directory because screenshots can contain calendar or weather data.
+
 ## License
 
 Distributed under the GPL 3.0 License, see [LICENSE](./LICENSE) for more information.
