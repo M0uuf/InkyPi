@@ -1,6 +1,7 @@
 import sys
 import threading
 import time
+import logging
 from pathlib import Path
 
 import pytest
@@ -31,14 +32,15 @@ class FakePlaylistManager:
 
 
 class FakeDeviceConfig:
-    def __init__(self, playlist=None):
+    def __init__(self, playlist=None, values=None):
         self.refresh_info = RefreshInfo(None, None, None, None)
         self.playlist_manager = FakePlaylistManager(playlist)
         self.writes = 0
         self.plugin_image_dir = "/tmp"
+        self.values = values or {}
 
     def get_config(self, key, default=None):
-        return default
+        return self.values.get(key, default)
 
     def get_playlist_manager(self):
         return self.playlist_manager
@@ -195,3 +197,58 @@ def test_playlist_refresh_re_resolves_deleted_plugin_instance(monkeypatch):
         assert "no longer exists" in status["error"]
     finally:
         task.stop()
+
+
+def test_refresh_diagnostics_log_phase_breakdown_when_enabled(monkeypatch, caplog):
+    monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
+    config = FakeDeviceConfig(values={"performance_diagnostics": True})
+    task = RefreshTask(config, FakeDisplayManager())
+
+    caplog.set_level(logging.INFO, logger="refresh_task")
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(FakeManualAction("weather"))
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "done":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("manual update job did not complete")
+    finally:
+        task.stop()
+
+    assert "Refresh diagnostics phase completed" in caplog.text
+    assert "phase: plugin image generation" in caplog.text
+    assert "phase: image hash calculation" in caplog.text
+    assert "phase: display manager processing" in caplog.text
+    assert "phase: config write" in caplog.text
+    assert "Refresh diagnostics summary" in caplog.text
+    assert "display_updated=True" in caplog.text
+
+
+def test_refresh_diagnostics_are_disabled_by_default(monkeypatch, caplog):
+    monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
+    task = RefreshTask(FakeDeviceConfig(), FakeDisplayManager())
+
+    caplog.set_level(logging.INFO, logger="refresh_task")
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(FakeManualAction("weather"))
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "done":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("manual update job did not complete")
+    finally:
+        task.stop()
+
+    assert "Refresh diagnostics summary" not in caplog.text

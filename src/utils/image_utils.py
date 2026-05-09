@@ -10,6 +10,7 @@ import shutil
 import time
 import threading
 from pathlib import Path
+from utils.performance import PerformanceDiagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -260,20 +261,33 @@ def _store_cached_html_render(cache_path, image):
             pass
 
 
-def take_screenshot_html(html_str, dimensions, timeout_ms=None, cache_extra=None):
+def take_screenshot_html(html_str, dimensions, timeout_ms=None, cache_extra=None, diagnostics_enabled=False):
     cache_key = _get_html_render_cache_key(html_str, dimensions, timeout_ms, cache_extra)
     cache_path = _get_html_render_cache_dir() / f"{cache_key}.png"
     cache_lock = _get_html_render_cache_lock(cache_key)
 
     with cache_lock:
-        return _take_screenshot_html_uncached(html_str, dimensions, timeout_ms, cache_path)
+        return _take_screenshot_html_uncached(
+            html_str,
+            dimensions,
+            timeout_ms,
+            cache_path,
+            diagnostics_enabled=diagnostics_enabled
+        )
 
 
-def _take_screenshot_html_uncached(html_str, dimensions, timeout_ms, cache_path):
+def _take_screenshot_html_uncached(html_str, dimensions, timeout_ms, cache_path, diagnostics_enabled=False):
     image = None
     html_file_path = None
-    cached_image = _load_cached_html_render(cache_path)
+    diagnostics = PerformanceDiagnostics(
+        enabled=diagnostics_enabled,
+        logger=logger,
+        prefix="HTML screenshot diagnostics"
+    )
+    with diagnostics.phase("cache lookup"):
+        cached_image = _load_cached_html_render(cache_path)
     if cached_image is not None:
+        diagnostics.log_summary("cache=hit | dimensions=%sx%s" % (dimensions[0], dimensions[1]))
         return cached_image
 
     logger.info(
@@ -285,11 +299,21 @@ def _take_screenshot_html_uncached(html_str, dimensions, timeout_ms, cache_path)
     capture_started = time.monotonic()
     try:
         # Create a temporary HTML file
-        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as html_file:
-            html_file.write(html_str.encode("utf-8"))
-            html_file_path = html_file.name
+        with diagnostics.phase("temporary html write"):
+            with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as html_file:
+                html_file.write(html_str.encode("utf-8"))
+                html_file_path = html_file.name
 
-        image = take_screenshot(html_file_path, dimensions, timeout_ms)
+        with diagnostics.phase("chromium screenshot"):
+            if diagnostics_enabled:
+                image = take_screenshot(
+                    html_file_path,
+                    dimensions,
+                    timeout_ms,
+                    diagnostics_enabled=True
+                )
+            else:
+                image = take_screenshot(html_file_path, dimensions, timeout_ms)
         if image is not None:
             _store_cached_html_render(cache_path, image)
 
@@ -303,6 +327,9 @@ def _take_screenshot_html_uncached(html_str, dimensions, timeout_ms, cache_path)
             time.monotonic() - capture_started,
             cache_path,
             image is not None
+        )
+        diagnostics.log_summary(
+            "cache=miss | dimensions=%sx%s | success=%s" % (dimensions[0], dimensions[1], image is not None)
         )
 
     return image
@@ -318,9 +345,14 @@ def _find_chromium_binary():
     return None
 
 
-def take_screenshot(target, dimensions, timeout_ms=None):
+def take_screenshot(target, dimensions, timeout_ms=None, diagnostics_enabled=False):
     image = None
     img_file_path = None
+    diagnostics = PerformanceDiagnostics(
+        enabled=diagnostics_enabled,
+        logger=logger,
+        prefix="Chromium screenshot diagnostics"
+    )
     try:
         # Find available browser binary
         browser = _find_chromium_binary()
@@ -329,8 +361,9 @@ def take_screenshot(target, dimensions, timeout_ms=None):
             return None
 
         # Create a temporary output file for the screenshot
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as img_file:
-            img_file_path = img_file.name
+        with diagnostics.phase("temporary png allocation"):
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as img_file:
+                img_file_path = img_file.name
 
         command = [
             browser,
@@ -363,7 +396,8 @@ def take_screenshot(target, dimensions, timeout_ms=None):
             target
         )
         chromium_started = time.monotonic()
-        result = subprocess.run(command, capture_output=True, check=False)
+        with diagnostics.phase("chromium process"):
+            result = subprocess.run(command, capture_output=True, check=False)
         chromium_elapsed = time.monotonic() - chromium_started
         logger.info(
             "Chromium screenshot process completed in %.2fs | return_code: %s",
@@ -379,14 +413,16 @@ def take_screenshot(target, dimensions, timeout_ms=None):
             return None
 
         # Load the image using PIL
-        with Image.open(img_file_path) as img:
-            image = img.copy()
+        with diagnostics.phase("png load"):
+            with Image.open(img_file_path) as img:
+                image = img.copy()
 
     except Exception as e:
         logger.error(f"Failed to take screenshot: {str(e)}")
     finally:
         if img_file_path and os.path.exists(img_file_path):
             os.remove(img_file_path)
+        diagnostics.log_summary("dimensions=%sx%s | success=%s" % (dimensions[0], dimensions[1], image is not None))
 
     return image
 

@@ -108,6 +108,35 @@ def test_take_screenshot_logs_chromium_duration(monkeypatch, caplog):
     assert "Chromium screenshot process completed" in caplog.text
 
 
+def test_take_screenshot_html_logs_diagnostics_when_enabled(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="utils.image_utils")
+    monkeypatch.setenv(image_utils.HTML_RENDER_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(image_utils, "_find_chromium_binary", lambda: "chromium")
+
+    def fake_run(command, capture_output, check):
+        screenshot_arg = next(arg for arg in command if arg.startswith("--screenshot="))
+        screenshot_path = screenshot_arg.split("=", 1)[1]
+        Image.new("RGB", (10, 8), "white").save(screenshot_path)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(image_utils.subprocess, "run", fake_run)
+
+    image = image_utils.take_screenshot_html(
+        "<html><body>diagnostics</body></html>",
+        (10, 8),
+        diagnostics_enabled=True
+    )
+
+    assert image.size == (10, 8)
+    assert "HTML screenshot diagnostics phase completed" in caplog.text
+    assert "phase: temporary html write" in caplog.text
+    assert "phase: chromium screenshot" in caplog.text
+    assert "Chromium screenshot diagnostics phase completed" in caplog.text
+    assert "phase: chromium process" in caplog.text
+    assert "phase: png load" in caplog.text
+    assert "HTML screenshot diagnostics summary" in caplog.text
+
+
 def test_base_plugin_render_image_logs_template_and_screenshot(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="plugins.base_plugin.base_plugin")
 
@@ -134,6 +163,34 @@ def test_base_plugin_render_image_logs_template_and_screenshot(monkeypatch, capl
     assert captured["cache_extra"]
     assert "Rendered HTML template for plugin 'test'" in caplog.text
     assert "Rendered plugin 'test' HTML to image" in caplog.text
+
+
+def test_base_plugin_render_image_logs_diagnostics_when_enabled(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="plugins.base_plugin.base_plugin")
+
+    plugin = BasePlugin.__new__(BasePlugin)
+    plugin.config = {"id": "test"}
+    plugin.render_dir = "/tmp"
+    plugin.env = Environment(loader=DictLoader({"test.html": "<p>{{ value }}</p>"}))
+
+    def fake_take_screenshot_html(rendered_html, dimensions, cache_extra=None, diagnostics_enabled=False):
+        assert diagnostics_enabled is True
+        return Image.new("RGB", dimensions, "white")
+
+    monkeypatch.setattr(base_plugin_module, "take_screenshot_html", fake_take_screenshot_html)
+
+    image = plugin.render_image(
+        (20, 10),
+        "test.html",
+        template_params={"value": "hello"},
+        diagnostics_enabled=True
+    )
+
+    assert image.size == (20, 10)
+    assert "HTML render diagnostics plugin=test phase completed" in caplog.text
+    assert "phase: jinja render" in caplog.text
+    assert "phase: html screenshot" in caplog.text
+    assert "HTML render diagnostics plugin=test summary" in caplog.text
 
 
 def test_base_plugin_render_image_cache_misses_when_css_changes(monkeypatch, tmp_path):

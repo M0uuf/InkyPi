@@ -5,6 +5,7 @@ import hashlib
 from utils.app_utils import resolve_path, get_fonts
 from utils.image_utils import take_screenshot_html
 from utils.image_loader import AdaptiveImageLoader
+from utils.performance import PerformanceDiagnostics
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pathlib import Path
 import asyncio
@@ -104,9 +105,14 @@ class BasePlugin:
         template_params['frame_styles'] = FRAME_STYLES
         return template_params
 
-    def render_image(self, dimensions, html_file, css_file=None, template_params=None):
+    def render_image(self, dimensions, html_file, css_file=None, template_params=None, diagnostics_enabled=False):
         if template_params is None:
             template_params = {}
+        diagnostics = PerformanceDiagnostics(
+            enabled=diagnostics_enabled,
+            logger=logger,
+            prefix=f"HTML render diagnostics plugin={self.get_plugin_id()}"
+        )
 
         # load the base plugin and current plugin css files
         css_files = [os.path.join(BASE_PLUGIN_RENDER_DIR, "plugin.css")]
@@ -126,8 +132,9 @@ class BasePlugin:
 
         # load and render the given html template
         render_started = time.monotonic()
-        template = self.env.get_template(html_file)
-        rendered_html = template.render(template_params)
+        with diagnostics.phase("jinja render"):
+            template = self.env.get_template(html_file)
+            rendered_html = template.render(template_params)
         render_elapsed = time.monotonic() - render_started
         logger.info(
             "Rendered HTML template for plugin '%s' in %.2fs | template: %s | size: %d bytes",
@@ -138,11 +145,20 @@ class BasePlugin:
         )
 
         screenshot_started = time.monotonic()
-        image = take_screenshot_html(
-            rendered_html,
-            dimensions,
-            cache_extra=render_resource_fingerprint
-        )
+        with diagnostics.phase("html screenshot"):
+            if diagnostics_enabled:
+                image = take_screenshot_html(
+                    rendered_html,
+                    dimensions,
+                    cache_extra=render_resource_fingerprint,
+                    diagnostics_enabled=True
+                )
+            else:
+                image = take_screenshot_html(
+                    rendered_html,
+                    dimensions,
+                    cache_extra=render_resource_fingerprint
+                )
         logger.info(
             "Rendered plugin '%s' HTML to image in %.2fs | dimensions: %sx%s",
             self.get_plugin_id(),
@@ -150,4 +166,5 @@ class BasePlugin:
             dimensions[0],
             dimensions[1]
         )
+        diagnostics.log_summary("template=%s | dimensions=%sx%s" % (html_file, dimensions[0], dimensions[1]))
         return image

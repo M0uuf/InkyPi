@@ -10,6 +10,7 @@ import pytz
 from io import BytesIO
 import math
 from utils.app_utils import get_font
+from utils.performance import is_performance_diagnostics_enabled
 
 logger = logging.getLogger(__name__)
         
@@ -147,7 +148,13 @@ class Weather(BasePlugin):
                 dimensions[1]
             )
         else:
-            image = self.render_image(dimensions, "weather.html", "weather.css", template_params)
+            image = self.render_image(
+                dimensions,
+                "weather.html",
+                "weather.css",
+                template_params,
+                diagnostics_enabled=is_performance_diagnostics_enabled(device_config)
+            )
 
         if not image:
             raise RuntimeError("Failed to take screenshot, please check logs.")
