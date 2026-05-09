@@ -116,6 +116,8 @@ HTML-rendered plugins cache exact screenshot outputs to reduce repeated Chromium
 
 The Weather plugin can optionally use a `Fast` renderer from its settings page. This path draws a simplified dashboard with Pillow instead of launching Chromium, which is faster and lighter on Raspberry Pi Zero class devices. The default `HTML` renderer keeps the richer layout, graph, frame styles, background images, and CSS-based styling.
 
+The Calendar plugin also supports an optional `Fast` renderer. It draws a simplified month/list view with Pillow and avoids Chromium, while the default `HTML` renderer keeps the richer FullCalendar layout, weekend/event-time options, time-grid now indicator, and styling.
+
 ## License
 
 Distributed under the GPL 3.0 License, see [LICENSE](./LICENSE) for more information.
