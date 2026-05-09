@@ -133,23 +133,71 @@ Important display/performance settings include:
 - `current_image_poll_interval_seconds`: main-page current-image polling interval
 - `display_low_resource_mode`: force or disable low-resource display processing mode
 - `display_resize_filter`: optional resize filter override, such as `bilinear`, `bicubic`, or `lanczos`
+- `performance_diagnostics`: enable structured timing logs for refresh phases
 - `waveshare_clear_before_display`: whether to clear before each display update
 - `waveshare_sleep_after_display`: whether to put the display to sleep after each update
 - `waveshare_reinitialize_before_display`: whether to initialize the display before each update
 
 The safe defaults preserve conservative E-Ink behavior. Disabling clear or sleep may reduce update time on some panels, but can increase ghosting, visual artifacts, or power use.
 
+## Raspberry Pi Zero 2 W performance
+
+Raspberry Pi Zero 2 W is supported, but it should be treated as a low-resource target. It can run the dashboard, but it will not behave like a Raspberry Pi 4.
+
+There are three different costs that are easy to confuse:
+
+1. **Plugin data and rendering time**: Weather or Calendar data fetching, HTML rendering, Chromium startup, or Pillow drawing.
+2. **Image processing time**: orientation, resize, enhancement, hashing, and display-buffer conversion.
+3. **Physical E-Ink refresh time**: the actual Waveshare panel update. Color panels and full refreshes can take many seconds, and software changes cannot make the physical panel instant.
+
+Recommended Zero 2 W settings:
+
+```json
+{
+  "current_image_poll_interval_seconds": 15,
+  "display_low_resource_mode": true,
+  "display_resize_filter": "bicubic",
+  "performance_diagnostics": true,
+  "waveshare_clear_before_display": true,
+  "waveshare_sleep_after_display": true,
+  "waveshare_reinitialize_before_display": true
+}
+```
+
+Recommended plugin choices:
+
+- use the **Fast** renderer for Weather and Calendar when the simplified layout is acceptable
+- use the **HTML** renderer only when the richer layout is worth the extra Chromium cost
+- keep refresh intervals realistic; weather and calendar dashboards usually do not need constant updates
+- avoid repeated manual refresh clicks; manual refresh jobs are serialized and the E-Ink panel still needs time
+
+Waveshare tuning options can reduce update time on some panels, but start with the safe defaults. Only disable `waveshare_clear_before_display` or `waveshare_sleep_after_display` after testing your specific display. Disabling clear can increase ghosting. Disabling sleep can increase power use. If the panel is put to sleep, InkyPi will reinitialize it before the next update.
+
+Use diagnostics to find the real bottleneck:
+
+```json
+{
+  "performance_diagnostics": true
+}
+```
+
+Then check the service logs:
+
+```bash
+journalctl -u inkypi -f
+```
+
+Look for these timing groups:
+
+- `Refresh diagnostics`: playlist selection, plugin image generation, hashing, display-manager processing, config write
+- `HTML render diagnostics`: Jinja and HTML screenshot work
+- `Chromium screenshot diagnostics`: Chromium process and PNG load
+- `Display pipeline`: save, orientation, resize, enhancement, concrete display call
+- `Waveshare`: init, clear, buffer conversion, display, sleep
+
+If `plugin image generation` or `Chromium screenshot` dominates, switch that plugin to Fast mode. If `Waveshare display` dominates, the panel refresh itself is the limiting factor. See [docs/troubleshooting.md](./docs/troubleshooting.md#raspberry-pi-zero-2-w-performance-checklist) for a detailed checklist.
+
 ## Performance notes
-
-Raspberry Pi Zero 2 W can run this project, but E-Ink refreshes and HTML rendering are inherently slow.
-
-For best results on low-resource devices:
-
-- use the Fast renderer for Weather and Calendar where acceptable
-- keep the UI polling interval conservative
-- avoid unnecessary manual refresh spam
-- leave Waveshare safety defaults enabled until your panel has been tested
-- use the timing logs to determine whether time is spent in plugin rendering, image processing, or physical display refresh
 
 HTML-rendered plugin screenshots are cached to reduce repeated Chromium startup cost. The default cache directory is created with private permissions. If `INKYPI_HTML_RENDER_CACHE_DIR` is overridden, choose a private directory because screenshots can contain calendar or weather data.
 
