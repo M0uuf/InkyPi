@@ -89,6 +89,8 @@ def build_template_params(view="dayGridMonth"):
         "view": view,
         "events": build_events(),
         "current_dt": datetime.now().replace(minute=0, second=0, microsecond=0).isoformat(),
+        "view_start": (datetime.now() - timedelta(weeks=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+        "view_end": (datetime.now() + timedelta(weeks=4)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
         "timezone": "UTC",
         "plugin_settings": settings,
         "time_format": "24h",
@@ -136,3 +138,15 @@ def test_calendar_unknown_render_mode_warns_and_uses_html_renderer(monkeypatch, 
 
     assert image.size == (800, 480)
     assert "Unknown Calendar renderMode" in caplog.text
+
+
+def test_calendar_fast_daygrid_uses_rolling_view_start_for_grid_start():
+    plugin = build_calendar_plugin()
+    current_dt = datetime(2026, 5, 20, 12, 0)
+    settings = build_settings(view_mode="dayGrid")
+    view_start, _ = plugin.get_view_range("dayGrid", current_dt, settings)
+
+    grid_start = plugin._get_fast_grid_start("dayGrid", current_dt, int(settings["weekStartDay"]), view_start.isoformat())
+
+    assert grid_start.date() == datetime(2026, 5, 11).date()
+    assert grid_start.month == 5

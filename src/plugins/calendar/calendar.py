@@ -59,6 +59,8 @@ class Calendar(BasePlugin):
             "view": view,
             "events": events,
             "current_dt": current_dt.replace(minute=0, second=0, microsecond=0).isoformat(),
+            "view_start": start.isoformat(),
+            "view_end": end.isoformat(),
             "timezone": timezone,
             "plugin_settings": settings,
             "time_format": time_format,
@@ -115,6 +117,7 @@ class Calendar(BasePlugin):
                 events,
                 current_dt,
                 settings,
+                template_params.get("view_start"),
                 (margin, y, width - margin, height - margin),
                 text_color,
                 accent_color
@@ -205,14 +208,12 @@ class Calendar(BasePlugin):
             self._draw_fit_text(draw, event["title"], title_x, y, right - title_x, event_font, text_color)
             y += max(self._text_height(draw, event["title"], event_font), self._text_height(draw, time_label, time_font)) + line_gap
 
-    def _draw_fast_month_grid(self, draw, events, current_dt, settings, bounds, text_color, accent_color):
+    def _draw_fast_month_grid(self, draw, events, current_dt, settings, view_start, bounds, text_color, accent_color):
         left, top, right, bottom = bounds
         width = max(1, right - left)
         height = max(1, bottom - top)
         week_start = int(settings.get("weekStartDay") or 0)
-        first_day = datetime(current_dt.year, current_dt.month, 1, tzinfo=current_dt.tzinfo)
-        start_offset = (first_day.weekday() - ((week_start - 1) % 7)) % 7
-        grid_start = first_day - timedelta(days=start_offset)
+        grid_start = self._get_fast_grid_start(settings.get("viewMode"), current_dt, week_start, view_start)
         rows = 6 if settings.get("viewMode") != "dayGrid" else max(1, int(settings.get("displayWeeks") or 4))
         header_height = max(14, int(height * 0.08))
         cell_width = width / 7
@@ -257,6 +258,15 @@ class Calendar(BasePlugin):
                     )
                     self._draw_fit_text(draw, text, cell_left + 4, event_y + 1, cell_right - cell_left - 8, event_font, event["text_color"])
                     event_y += chip_height + 2
+
+    def _get_fast_grid_start(self, view, current_dt, week_start, view_start=None):
+        if view == "dayGrid" and view_start:
+            start_dt = datetime.fromisoformat(view_start)
+        else:
+            start_dt = datetime(current_dt.year, current_dt.month, 1, tzinfo=current_dt.tzinfo)
+
+        start_offset = (start_dt.weekday() - ((week_start - 1) % 7)) % 7
+        return start_dt - timedelta(days=start_offset)
 
     def _get_fast_font(self, size, weight="normal"):
         return get_font("Jost", size, weight) or get_font("Jost", size) or ImageFont.load_default()
