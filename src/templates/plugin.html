@@ -32,6 +32,11 @@
         const refreshSettings = {{ refresh_settings | tojson if refresh_settings else {} }};
 
         let uploadedFiles = {};
+        const currentImageRefreshSignalKey = 'inkypi-current-image-refresh-requested-at';
+
+        function signalCurrentImageRefresh() {
+            localStorage.setItem(currentImageRefreshSignalKey, String(Date.now()));
+        }
 
         // Initialize refresh settings managers
         let editRefreshManager = null;
@@ -129,11 +134,15 @@
                     let message = result.message;
                     if (response.status === 202 && result.job) {
                         await waitForRefreshJob(result.job);
+                        signalCurrentImageRefresh();
                         message = 'Display updated';
+                    } else if (action !== "add_to_playlist" && action !== "update_instance") {
+                        signalCurrentImageRefresh();
                     }
                     showResponseModal('success', `Success! ${message}`);
                 } else if (response.status === 409 && result.job) {
                     await waitForRefreshJob(result.job);
+                    signalCurrentImageRefresh();
                     showResponseModal('success', 'Success! Display updated');
                 } else {
                     showResponseModal('failure', `Error!  ${result.error}`);

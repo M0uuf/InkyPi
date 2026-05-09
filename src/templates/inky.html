@@ -14,15 +14,22 @@
             }
         })();
         let lastModified = null;
-        const refreshIntervalMs = 3 * 1000;
+        let refreshIntervalId = null;
+        let currentImageObjectUrl = null;
+        let refreshImageInFlight = false;
+        const refreshIntervalMs = Math.max(5, {{ config.current_image_poll_interval_seconds | default(15) | int }}) * 1000;
+        const refreshSignalKey = 'inkypi-current-image-refresh-requested-at';
 
-        async function refreshImage() {
+        async function refreshImage(force = false) {
             const img = document.querySelector('.image-container img');
             if (!img) return;
+            if (document.hidden && !force) return;
+            if (refreshImageInFlight) return;
 
             try {
+                refreshImageInFlight = true;
                 const headers = {};
-                if (lastModified) {
+                if (lastModified && !force) {
                     headers['If-Modified-Since'] = lastModified;
                 }
 
@@ -41,15 +48,60 @@
                 const objectUrl = URL.createObjectURL(blob);
                 
                 img.src = objectUrl;
+                if (currentImageObjectUrl) {
+                    URL.revokeObjectURL(currentImageObjectUrl);
+                }
+                currentImageObjectUrl = objectUrl;
                 lastModified = response.headers.get('Last-Modified');
             } catch (error) {
                 console.error('Error refreshing image:', error);
+            } finally {
+                refreshImageInFlight = false;
             }
         }
 
+        function startImagePolling() {
+            if (refreshIntervalId || document.hidden) return;
+            refreshIntervalId = setInterval(refreshImage, refreshIntervalMs);
+        }
+
+        function stopImagePolling() {
+            if (!refreshIntervalId) return;
+            clearInterval(refreshIntervalId);
+            refreshIntervalId = null;
+        }
+
+        function requestCurrentImageRefresh() {
+            refreshImage(true);
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
-            refreshImage();
-            setInterval(refreshImage, refreshIntervalMs);
+            requestCurrentImageRefresh();
+            startImagePolling();
+        });
+
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                stopImagePolling();
+            } else {
+                requestCurrentImageRefresh();
+                startImagePolling();
+            }
+        });
+
+        window.addEventListener('storage', function(event) {
+            if (event.key === refreshSignalKey) {
+                requestCurrentImageRefresh();
+            }
+        });
+
+        window.addEventListener('pageshow', function() {
+            const requestedAt = Number(localStorage.getItem(refreshSignalKey) || 0);
+            const refreshedAt = Number(sessionStorage.getItem(refreshSignalKey) || 0);
+            if (requestedAt > refreshedAt) {
+                sessionStorage.setItem(refreshSignalKey, String(requestedAt));
+                requestCurrentImageRefresh();
+            }
         });
     </script>
     <script src="{{ url_for('static', filename='scripts/image_modal.js') }}"></script>

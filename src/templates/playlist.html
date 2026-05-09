@@ -173,6 +173,12 @@
             throw new Error('Refresh is still running; check the display or reload');
         }
 
+        const currentImageRefreshSignalKey = 'inkypi-current-image-refresh-requested-at';
+
+        function signalCurrentImageRefresh() {
+            localStorage.setItem(currentImageRefreshSignalKey, String(Date.now()));
+        }
+
         async function displayPluginInstance(playlistName, pluginId, pluginInstance) {
             const loadingIndicator = document.getElementById(pluginInstance)?.querySelector('.loading-indicator');
             loadingIndicator.style.display = 'block';
@@ -194,12 +200,16 @@
                     let message = result.message;
                     if (response.status === 202 && result.job) {
                         await waitForRefreshJob(result.job);
+                        signalCurrentImageRefresh();
                         message = 'Display updated';
+                    } else {
+                        signalCurrentImageRefresh();
                     }
                     sessionStorage.setItem("storedMessage", JSON.stringify({ type: "success", text: `Success! ${message}` }));
                     location.reload();
                 } else if (response.status === 409 && result.job) {
                     await waitForRefreshJob(result.job);
+                    signalCurrentImageRefresh();
                     sessionStorage.setItem("storedMessage", JSON.stringify({ type: "success", text: "Success! Display updated" }));
                     location.reload();
                 } else {
