@@ -16,6 +16,18 @@ logger = logging.getLogger(__name__)
 HTML_RENDER_CACHE_VERSION = "v1"
 HTML_RENDER_CACHE_DIR_ENV = "INKYPI_HTML_RENDER_CACHE_DIR"
 HTML_RENDER_CACHE_MAX_ENTRIES = 32
+DEFAULT_IMAGE_ENHANCEMENT_SETTINGS = {
+    "brightness": 1.0,
+    "contrast": 1.0,
+    "saturation": 1.0,
+    "sharpness": 1.0
+}
+RESIZE_FILTERS = {
+    "nearest": Image.Resampling.NEAREST,
+    "bilinear": Image.Resampling.BILINEAR,
+    "bicubic": Image.Resampling.BICUBIC,
+    "lanczos": Image.Resampling.LANCZOS
+}
 _html_render_cache_locks = {}
 _html_render_cache_locks_guard = threading.Lock()
 
@@ -37,12 +49,63 @@ def change_orientation(image, orientation, inverted=False):
     if inverted:
         angle = (angle + 180) % 360
 
+    if angle == 0:
+        logger.info("Skipping orientation transform; image is already horizontal")
+        return image
+
     return image.rotate(angle, expand=1)
 
-def resize_image(image, desired_size, image_settings=[]):
+def get_resize_filter(filter_name, default="lanczos"):
+    """Return a PIL resampling filter by config name."""
+    if not isinstance(filter_name, str):
+        filter_name = default
+    normalized_filter = filter_name.strip().lower()
+    selected_filter = RESIZE_FILTERS.get(normalized_filter)
+    if selected_filter is not None:
+        return selected_filter
+
+    logger.warning("Unsupported resize filter %r. Using %s.", filter_name, default)
+    return RESIZE_FILTERS[default]
+
+
+def get_resize_filter_name(resample_filter):
+    """Return a stable config/log name for a PIL resampling filter."""
+    for filter_name, filter_value in RESIZE_FILTERS.items():
+        if filter_value == resample_filter:
+            return filter_name
+    return str(resample_filter)
+
+
+def is_default_image_enhancement(image_settings):
+    """Return True when enhancement settings would leave the image unchanged."""
+    if not isinstance(image_settings, dict):
+        return True
+
+    for setting_name, default_value in DEFAULT_IMAGE_ENHANCEMENT_SETTINGS.items():
+        try:
+            setting_value = float(image_settings.get(setting_name, default_value))
+        except (TypeError, ValueError):
+            return False
+        if setting_value != default_value:
+            return False
+    return True
+
+
+def normalize_image_mode_for_enhancement(img):
+    """Convert image modes that ImageEnhance/display drivers do not handle consistently."""
+    if img.mode not in ('RGB', 'L'):
+        return img.convert('RGB')
+    return img
+
+
+def resize_image(image, desired_size, image_settings=[], resample_filter=Image.Resampling.LANCZOS):
     img_width, img_height = image.size
     desired_width, desired_height = desired_size
     desired_width, desired_height = int(desired_width), int(desired_height)
+
+    if (img_width, img_height) == (desired_width, desired_height):
+        logger.info("Skipping resize; image already matches target size %sx%s", desired_width, desired_height)
+        return image
 
     img_ratio = img_width / img_height
     desired_ratio = desired_width / desired_height
@@ -68,14 +131,14 @@ def resize_image(image, desired_size, image_settings=[]):
     image = image.crop((x_offset, y_offset, x_offset + new_width, y_offset + new_height))
 
     # Step 3: Resize to the exact desired dimensions (if necessary)
-    return image.resize((desired_width, desired_height), Image.LANCZOS)
+    return image.resize((desired_width, desired_height), resample_filter)
 
 def apply_image_enhancement(img, image_settings={}):
-    # Convert image to RGB mode if necessary for enhancement operations
-    # ImageEnhance requires RGB mode for operations like blend
-    if img.mode not in ('RGB', 'L'):
-        img = img.convert('RGB')
-        
+    img = normalize_image_mode_for_enhancement(img)
+
+    if is_default_image_enhancement(image_settings):
+        logger.info("Skipping image enhancement; settings are defaults")
+        return img
 
     # Apply Brightness
     img = ImageEnhance.Brightness(img).enhance(image_settings.get("brightness", 1.0))

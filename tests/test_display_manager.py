@@ -7,7 +7,9 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from display import display_manager as display_manager_module
 from display.display_manager import DisplayManager
+from utils.image_utils import RESIZE_FILTERS
 
 
 class FakeDeviceConfig:
@@ -16,7 +18,8 @@ class FakeDeviceConfig:
         self.values = {
             "orientation": "horizontal",
             "inverted_image": False,
-            "image_settings": {}
+            "image_settings": {},
+            "display_low_resource_mode": False
         }
 
     def get_config(self, key=None, default=None):
@@ -45,6 +48,24 @@ class BlockingDisplay:
             self.active_writes -= 1
 
 
+class CapturingDisplay:
+    def __init__(self):
+        self.images = []
+
+    def display_image(self, image, image_settings):
+        self.images.append(image)
+
+
+def make_manager(tmp_path, values=None):
+    manager = DisplayManager.__new__(DisplayManager)
+    manager.device_config = FakeDeviceConfig(tmp_path / "current.png")
+    if values:
+        manager.device_config.values.update(values)
+    manager.display_lock = threading.Lock()
+    manager.display = CapturingDisplay()
+    return manager
+
+
 def test_display_manager_serializes_concrete_display_writes(tmp_path):
     manager = DisplayManager.__new__(DisplayManager)
     manager.device_config = FakeDeviceConfig(tmp_path / "current.png")
@@ -63,3 +84,84 @@ def test_display_manager_serializes_concrete_display_writes(tmp_path):
         thread.join()
 
     assert manager.display.max_active_writes == 1
+
+
+def test_display_manager_skips_noop_resize_and_default_enhancement(monkeypatch, tmp_path):
+    manager = make_manager(tmp_path)
+    image = Image.new("RGB", (16, 16), "white")
+
+    def fail_resize(*args, **kwargs):
+        raise AssertionError("resize should be skipped")
+
+    def fail_enhancement(*args, **kwargs):
+        raise AssertionError("enhancement should be skipped")
+
+    monkeypatch.setattr(display_manager_module, "resize_image", fail_resize)
+    monkeypatch.setattr(display_manager_module, "apply_image_enhancement", fail_enhancement)
+
+    manager.display_image(image, [])
+
+    assert manager.display.images[0].size == (16, 16)
+    assert Path(manager.device_config.current_image_file).exists()
+
+
+def test_display_manager_preserves_mode_normalization_when_enhancement_is_default(tmp_path):
+    manager = make_manager(tmp_path)
+    image = Image.new("RGBA", (16, 16), "white")
+
+    manager.display_image(image, [])
+
+    assert manager.display.images[0].mode == "RGB"
+
+
+def test_display_manager_uses_low_resource_resize_filter(monkeypatch, tmp_path):
+    manager = make_manager(tmp_path, {"display_low_resource_mode": True})
+    image = Image.new("RGB", (32, 16), "white")
+    captured = {}
+
+    def capture_resize(image, desired_size, image_settings, resample_filter):
+        captured["filter"] = resample_filter
+        return Image.new("RGB", desired_size, "white")
+
+    monkeypatch.setattr(display_manager_module, "resize_image", capture_resize)
+
+    manager.display_image(image, [])
+
+    assert captured["filter"] == RESIZE_FILTERS["bicubic"]
+
+
+def test_display_manager_uses_configured_resize_filter(monkeypatch, tmp_path):
+    manager = make_manager(tmp_path, {
+        "display_low_resource_mode": True,
+        "display_resize_filter": "bilinear"
+    })
+    image = Image.new("RGB", (32, 16), "white")
+    captured = {}
+
+    def capture_resize(image, desired_size, image_settings, resample_filter):
+        captured["filter"] = resample_filter
+        return Image.new("RGB", desired_size, "white")
+
+    monkeypatch.setattr(display_manager_module, "resize_image", capture_resize)
+
+    manager.display_image(image, [])
+
+    assert captured["filter"] == RESIZE_FILTERS["bilinear"]
+
+
+def test_display_manager_logs_processing_phase_timing(caplog, tmp_path):
+    manager = make_manager(tmp_path)
+    image = Image.new("RGB", (16, 16), "white")
+
+    caplog.set_level("INFO", logger="display.display_manager")
+
+    manager.display_image(image, [])
+
+    log_text = caplog.text
+    assert "Display pipeline save current image completed" in log_text
+    assert "Display pipeline orientation transform completed" in log_text
+    assert "Display pipeline resize skipped" in log_text
+    assert "Display pipeline enhancement skipped" in log_text
+    assert "Display pipeline enhancement phase completed" in log_text
+    assert "Display pipeline concrete display completed" in log_text
+    assert "Display pipeline total completed" in log_text

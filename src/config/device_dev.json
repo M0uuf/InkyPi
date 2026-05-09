@@ -2,6 +2,8 @@
     "name": "InkyPi Development",
     "display_type": "mock",
     "web_server_threads": 2,
+    "display_low_resource_mode": false,
+    "display_resize_filter": null,
     "resolution": [
         800,
         480
