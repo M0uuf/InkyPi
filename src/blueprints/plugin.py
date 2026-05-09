@@ -117,9 +117,12 @@ def image(plugin_id, filename):
         abs_plugin_dir,
         filename,
         conditional=True,
-        max_age=PLUGIN_ASSET_CACHE_SECONDS
+        max_age=PLUGIN_ASSET_CACHE_SECONDS if request.args.get("v") else 0
     )
-    response.headers["Cache-Control"] = f"public, max-age={PLUGIN_ASSET_CACHE_SECONDS}, immutable"
+    if request.args.get("v"):
+        response.headers["Cache-Control"] = f"public, max-age={PLUGIN_ASSET_CACHE_SECONDS}, immutable"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 @plugin_bp.route('/plugin_instance_image/<path:playlist_name>/<path:plugin_id>/<path:instance_name>')

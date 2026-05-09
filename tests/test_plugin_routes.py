@@ -190,13 +190,30 @@ def test_plugin_image_route_caches_static_plugin_assets(monkeypatch, tmp_path):
     app = Flask(__name__)
     app.register_blueprint(plugin_bp)
 
-    response = app.test_client().get("/images/weather/icon.png")
+    response = app.test_client().get("/images/weather/icon.png?v=123")
 
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == (
         f"public, max-age={plugin_module.PLUGIN_ASSET_CACHE_SECONDS}, immutable"
     )
     assert response.headers["ETag"]
+
+
+def test_plugin_image_route_revalidates_unversioned_assets(monkeypatch, tmp_path):
+    plugins_dir = tmp_path / "plugins"
+    frame_dir = plugins_dir / "base_plugin" / "frames"
+    frame_dir.mkdir(parents=True)
+    (frame_dir / "classic.png").write_bytes(b"fake png")
+
+    plugin_module._plugins_dir.cache_clear()
+    monkeypatch.setattr(plugin_module, "resolve_path", lambda path: str(plugins_dir))
+    app = Flask(__name__)
+    app.register_blueprint(plugin_bp)
+
+    response = app.test_client().get("/images/base_plugin/frames/classic.png")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-cache"
 
 
 def test_plugin_image_route_rejects_path_traversal(monkeypatch, tmp_path):
