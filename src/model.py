@@ -231,6 +231,24 @@ class Playlist:
         
         return self.plugins[self.current_plugin_index]
 
+    def find_next_refreshable_plugin(self, current_time):
+        """Return the next plugin instance whose own refresh rule is due."""
+        if not self.plugins:
+            return None
+
+        start_index = self.current_plugin_index
+        if start_index is None:
+            start_index = -1
+
+        for offset in range(1, len(self.plugins) + 1):
+            candidate_index = (start_index + offset) % len(self.plugins)
+            plugin = self.plugins[candidate_index]
+            if plugin.should_refresh(current_time):
+                self.current_plugin_index = candidate_index
+                return plugin
+
+        return None
+
     def get_priority(self):
         """Determine priority of a playlist, based on the time range"""
         return self.get_time_range_minutes()
@@ -296,11 +314,11 @@ class PluginInstance:
     def should_refresh(self, current_time):
         """Checks whether the plugin should be refreshed based on its refresh settings and the current time."""
         latest_refresh_dt = self.get_latest_refresh_dt()
-        if not latest_refresh_dt:
-            return True
 
         # Check for interval-based refresh
         if "interval" in self.refresh:
+            if not latest_refresh_dt:
+                return True
             interval = self.refresh.get("interval")
             if interval and (current_time - latest_refresh_dt) >= timedelta(seconds=interval):
                 return True
@@ -308,22 +326,21 @@ class PluginInstance:
         # Check for scheduled refresh (HH:MM format)
         if "scheduled" in self.refresh:
             scheduled_time_str = self.refresh.get("scheduled")
-            latest_refresh_str = latest_refresh_dt.strftime("%H:%M")
-
-            # If the latest refresh is before the scheduled time today
-            if latest_refresh_str < scheduled_time_str:
-                return True
-        
-        if "scheduled" in self.refresh:
-            scheduled_time_str = self.refresh.get("scheduled")
             scheduled_time = datetime.strptime(scheduled_time_str, "%H:%M").time()
-            
-            latest_refresh_date = latest_refresh_dt.date()
+            current_time_of_day = current_time.time().replace(tzinfo=None)
             current_date = current_time.date()
 
-            # Determine if a refresh is needed based on scheduled time and last refresh
-            if (latest_refresh_date < current_date and current_time.time() >= scheduled_time) or \
-            (latest_refresh_date == current_date and latest_refresh_dt.time() < scheduled_time <= current_time.time()):
+            if current_time_of_day < scheduled_time:
+                return False
+
+            if not latest_refresh_dt:
+                return True
+
+            latest_refresh_date = latest_refresh_dt.date()
+            if latest_refresh_date < current_date:
+                return True
+            latest_refresh_time_of_day = latest_refresh_dt.time().replace(tzinfo=None)
+            if latest_refresh_date == current_date and latest_refresh_time_of_day < scheduled_time:
                 return True
 
         return False

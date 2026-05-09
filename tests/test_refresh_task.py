@@ -21,9 +21,10 @@ class FakePlugin:
 class FakePlaylistManager:
     def __init__(self, playlist=None):
         self.playlist = playlist
+        self.active_playlist = None
 
     def determine_active_playlist(self, current_dt):
-        return None
+        return self.playlist
 
     def get_playlist(self, playlist_name):
         if self.playlist and self.playlist.name == playlist_name:
@@ -252,3 +253,62 @@ def test_refresh_diagnostics_are_disabled_by_default(monkeypatch, caplog):
         task.stop()
 
     assert "Refresh diagnostics summary" not in caplog.text
+
+
+def test_determine_next_plugin_honors_short_plugin_interval_despite_global_cycle():
+    playlist = Playlist("Default", "00:00", "24:00", [{
+        "plugin_id": "weather",
+        "name": "Weather",
+        "plugin_settings": {},
+        "refresh": {"interval": 300},
+        "latest_refresh_time": "2026-05-09T08:00:00"
+    }])
+    config = FakeDeviceConfig(
+        playlist,
+        values={"plugin_cycle_interval_seconds": 3600}
+    )
+    task = RefreshTask(config, FakeDisplayManager())
+
+    selected_playlist, plugin = task._determine_next_plugin(
+        config.get_playlist_manager(),
+        config.get_refresh_info(),
+        datetime_from_iso("2026-05-09T08:05:00")
+    )
+
+    assert selected_playlist is playlist
+    assert plugin.name == "Weather"
+
+
+def test_determine_next_plugin_skips_when_plugin_refresh_not_due():
+    playlist = Playlist("Default", "00:00", "24:00", [{
+        "plugin_id": "weather",
+        "name": "Weather",
+        "plugin_settings": {},
+        "refresh": {"interval": 300},
+        "latest_refresh_time": "2026-05-09T08:00:00"
+    }], current_plugin_index=0)
+    config = FakeDeviceConfig(playlist)
+    task = RefreshTask(config, FakeDisplayManager())
+
+    selected_playlist, plugin = task._determine_next_plugin(
+        config.get_playlist_manager(),
+        config.get_refresh_info(),
+        datetime_from_iso("2026-05-09T08:04:59")
+    )
+
+    assert selected_playlist is None
+    assert plugin is None
+    assert playlist.current_plugin_index == 0
+
+
+def test_scheduler_check_interval_defaults_and_validates_config():
+    task = RefreshTask(FakeDeviceConfig(values={"scheduler_check_interval_seconds": "5"}), FakeDisplayManager())
+    assert task._get_scheduler_check_interval_seconds() == 5
+
+    invalid_task = RefreshTask(FakeDeviceConfig(values={"scheduler_check_interval_seconds": "later"}), FakeDisplayManager())
+    assert invalid_task._get_scheduler_check_interval_seconds() == RefreshTask.DEFAULT_SCHEDULER_CHECK_INTERVAL_SECONDS
+
+
+def datetime_from_iso(value):
+    from datetime import datetime
+    return datetime.fromisoformat(value)
