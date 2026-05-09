@@ -33,6 +33,7 @@
         <option value="html">HTML</option>
         <option value="fast">Fast</option>
     </select>
+    <small id="renderModeHelp" class="form-help"></small>
 </div>
 
 <div class="form-group" id="titleOptionWrapper">
@@ -166,6 +167,16 @@
         }
     }
 
+    function updateRenderModeHelp() {
+        const renderMode = document.getElementById('renderMode').value;
+        const help = document.getElementById('renderModeHelp');
+        if (renderMode === 'fast') {
+            help.textContent = 'Fast skips graph, frame, background image, and CSS layout features.';
+        } else {
+            help.textContent = 'HTML supports the full layout and graph but starts Chromium.';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
 
         const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -264,7 +275,9 @@
         }
 
         document.getElementById('weatherProvider').value = weatherProvider;
+        document.getElementById('renderMode').addEventListener('change', updateRenderModeHelp);
         document.querySelector(`input[name="titleSelection"][value="${selectedTitle}"]`).checked = true;
         updateTitleOptions(weatherProvider)
+        updateRenderModeHelp()
     });
 </script>

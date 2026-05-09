@@ -1,5 +1,6 @@
 import sys
 import types
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -189,3 +190,32 @@ def test_weather_fast_mode_generate_image_does_not_use_html_renderer(monkeypatch
 
     assert isinstance(image, Image.Image)
     assert image.size == (800, 480)
+
+
+def test_weather_unknown_render_mode_warns_and_uses_html_renderer(monkeypatch, caplog):
+    caplog.set_level(logging.WARNING, logger="plugins.weather.weather")
+    plugin = build_weather_plugin()
+    settings = {
+        "latitude": "52.5",
+        "longitude": "13.4",
+        "units": "metric",
+        "weatherProvider": "OpenWeatherMap",
+        "weatherTimeZone": "localTimeZone",
+        "titleSelection": "custom",
+        "customTitle": "Berlin",
+        "renderMode": "unexpected",
+        "displayRefreshTime": "true",
+        "displayMetrics": "true",
+        "displayForecast": "true",
+        "forecastDays": "3",
+        "moonPhase": "false"
+    }
+
+    monkeypatch.setattr(plugin, "get_weather_data", lambda api_key, units, lat, long: build_openweather_payload())
+    monkeypatch.setattr(plugin, "get_air_quality", lambda api_key, lat, long: {"list": [{"main": {"aqi": 1}}]})
+    monkeypatch.setattr(plugin, "render_image", lambda *args, **kwargs: Image.new("RGB", (800, 480), "white"))
+
+    image = plugin.generate_image(settings, FakeDeviceConfig())
+
+    assert image.size == (800, 480)
+    assert "Unknown Weather renderMode" in caplog.text

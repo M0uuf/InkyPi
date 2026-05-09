@@ -134,6 +134,9 @@ class Weather(BasePlugin):
         template_params["last_refresh_time"] = last_refresh_time
 
         render_mode = settings.get("renderMode", "html")
+        if render_mode not in {"html", "fast"}:
+            logger.warning("Unknown Weather renderMode '%s'; falling back to HTML renderer.", render_mode)
+            render_mode = "html"
         render_started = time.monotonic()
         if render_mode == "fast":
             image = self.render_fast_image(dimensions, template_params)

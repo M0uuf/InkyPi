@@ -114,7 +114,7 @@ Waveshare refresh behavior can be tuned in `src/config/device.json`. By default 
 
 HTML-rendered plugins cache exact screenshot outputs to reduce repeated Chromium startup cost. The default cache directory is created with private permissions. If you override it with `INKYPI_HTML_RENDER_CACHE_DIR`, choose a private directory because screenshots can contain calendar or weather data.
 
-The Weather plugin can optionally use a `Fast` renderer from its settings page. This path draws a simplified dashboard with Pillow instead of launching Chromium, which is faster and lighter on Raspberry Pi Zero class devices. The default `HTML` renderer keeps the richer layout, graph, and CSS-based styling.
+The Weather plugin can optionally use a `Fast` renderer from its settings page. This path draws a simplified dashboard with Pillow instead of launching Chromium, which is faster and lighter on Raspberry Pi Zero class devices. The default `HTML` renderer keeps the richer layout, graph, frame styles, background images, and CSS-based styling.
 
 ## License
 
