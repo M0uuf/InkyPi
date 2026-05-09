@@ -5,6 +5,8 @@
     "waveshare_clear_before_display": true,
     "waveshare_sleep_after_display": true,
     "web_server_threads": 2,
+    "display_low_resource_mode": null,
+    "display_resize_filter": null,
     "orientation": "horizontal",
     "inverted_image": false,
     "scheduler_sleep_time": 60,

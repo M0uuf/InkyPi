@@ -12,6 +12,7 @@ from utils.http_client import get_http_session
 import logging
 import gc
 import psutil
+import requests
 import tempfile
 import os
 
@@ -357,4 +358,3 @@ class AdaptiveImageLoader:
         logger.debug(f"Resizing from {img.size[0]}x{img.size[1]} to {dimensions[0]}x{dimensions[1]}")
 
         return ImageOps.fit(img, dimensions, method=Image.LANCZOS)
-
