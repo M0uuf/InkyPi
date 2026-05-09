@@ -1,13 +1,15 @@
 from plugins.base_plugin.base_plugin import BasePlugin
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import os
 import requests
 import logging
+import time
 from datetime import datetime, timedelta, timezone, date
 from astral import moon
 import pytz
 from io import BytesIO
 import math
+from utils.app_utils import get_font
 
 logger = logging.getLogger(__name__)
         
@@ -131,11 +133,199 @@ class Weather(BasePlugin):
             last_refresh_time = now.strftime("%Y-%m-%d %I:%M %p")
         template_params["last_refresh_time"] = last_refresh_time
 
-        image = self.render_image(dimensions, "weather.html", "weather.css", template_params)
+        render_mode = settings.get("renderMode", "html")
+        if render_mode not in {"html", "fast"}:
+            logger.warning("Unknown Weather renderMode '%s'; falling back to HTML renderer.", render_mode)
+            render_mode = "html"
+        render_started = time.monotonic()
+        if render_mode == "fast":
+            image = self.render_fast_image(dimensions, template_params)
+            logger.info(
+                "Rendered Weather plugin with fast Pillow renderer in %.2fs | dimensions: %sx%s",
+                time.monotonic() - render_started,
+                dimensions[0],
+                dimensions[1]
+            )
+        else:
+            image = self.render_image(dimensions, "weather.html", "weather.css", template_params)
 
         if not image:
             raise RuntimeError("Failed to take screenshot, please check logs.")
         return image
+
+    def render_fast_image(self, dimensions, template_params):
+        """Render a simplified Weather image without launching Chromium."""
+        width, height = int(dimensions[0]), int(dimensions[1])
+        settings = template_params.get("plugin_settings", {})
+        background_color = settings.get("backgroundColor") or "#ffffff"
+        text_color = settings.get("textColor") or "#000000"
+        accent_color = settings.get("accentColor") or text_color
+
+        image = Image.new("RGB", (width, height), background_color)
+        draw = ImageDraw.Draw(image)
+
+        margin = max(8, int(min(width, height) * 0.035))
+        y = margin
+
+        if settings.get("displayRefreshTime") == "true":
+            refresh_font = self._get_fast_font(max(10, int(height * 0.035)), "normal")
+            refresh_text = f"Last refresh: {template_params.get('last_refresh_time', '')}"
+            self._draw_right_text(draw, refresh_text, width - margin, y, refresh_font, text_color)
+            y += self._text_height(draw, refresh_text, refresh_font) + max(2, margin // 4)
+
+        title_font = self._get_fast_font(max(18, int(height * 0.085)), "bold")
+        date_font = self._get_fast_font(max(12, int(height * 0.045)), "normal")
+        title = template_params.get("title") or "Weather"
+        self._draw_centered_fit_text(draw, title, margin, y, width - (2 * margin), title_font, text_color)
+        y += self._text_height(draw, title, title_font) + max(2, margin // 5)
+        current_date = template_params.get("current_date", "")
+        self._draw_centered_fit_text(draw, current_date, margin, y, width - (2 * margin), date_font, text_color)
+        y += self._text_height(draw, current_date, date_font) + margin
+
+        forecast = template_params.get("forecast") or []
+        data_points = template_params.get("data_points") or []
+        units = template_params.get("units")
+        current_section_height = max(int(height * 0.34), int(height * 0.25))
+        forecast_enabled = settings.get("displayForecast") == "true" and len(forecast) > 1
+        if not forecast_enabled:
+            current_section_height = max(1, height - y - margin)
+        current_bottom = max(y + 1, min(height - margin, y + current_section_height))
+
+        self._draw_fast_current_conditions(
+            image,
+            draw,
+            template_params,
+            forecast,
+            data_points,
+            units,
+            (margin, y, width - margin, current_bottom),
+            text_color,
+            accent_color
+        )
+
+        if forecast_enabled:
+            forecast_y = min(height - margin, current_bottom + margin)
+            self._draw_fast_forecast(
+                image,
+                draw,
+                forecast,
+                settings,
+                (margin, forecast_y, width - margin, height - margin),
+                text_color,
+                accent_color,
+                units
+            )
+
+        return image
+
+    def _draw_fast_current_conditions(self, image, draw, template_params, forecast, data_points, units, bounds, text_color, accent_color):
+        left, top, right, bottom = bounds
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+        icon_size = max(36, min(int(width * 0.22), int(height * 0.7)))
+        icon_x = left
+        icon_y = top + max(0, (height - icon_size) // 2)
+        self._paste_icon(image, template_params.get("current_day_icon"), (icon_x, icon_y), icon_size)
+
+        temp_font = self._get_fast_font(max(28, int(height * 0.38)), "bold")
+        small_font = self._get_fast_font(max(12, int(height * 0.09)), "normal")
+        temp_x = icon_x + icon_size + max(8, int(width * 0.03))
+        temp_text = f"{template_params.get('current_temperature', '')}{template_params.get('temperature_unit', '')}"
+        draw.text((temp_x, top), temp_text, fill=text_color, font=temp_font)
+        small_y = top + self._text_height(draw, temp_text, temp_font)
+        feels_like = f"Feels like {template_params.get('feels_like', '')}"
+        if units != "standard":
+            feels_like += "°"
+        draw.text((temp_x, small_y), feels_like, fill=text_color, font=small_font)
+        if forecast:
+            min_max = f"{forecast[0].get('high', '')}° / {forecast[0].get('low', '')}°" if units != "standard" else f"{forecast[0].get('high', '')} / {forecast[0].get('low', '')}"
+            draw.text((temp_x, small_y + self._text_height(draw, feels_like, small_font) + 2), min_max, fill=accent_color, font=small_font)
+
+        settings = template_params.get("plugin_settings", {})
+        if settings.get("displayMetrics") != "true":
+            return
+
+        metrics_left = left + int(width * 0.58)
+        metrics_width = right - metrics_left
+        metric_font = self._get_fast_font(max(11, int(height * 0.075)), "normal")
+        metric_value_font = self._get_fast_font(max(12, int(height * 0.085)), "bold")
+        metric_rows = data_points[:6]
+        row_height = max(16, height // max(1, len(metric_rows)))
+        for index, data_point in enumerate(metric_rows):
+            row_y = top + (index * row_height)
+            label = str(data_point.get("label", ""))
+            value = str(data_point.get("measurement", ""))
+            unit = str(data_point.get("unit", "") or "")
+            if label == "Wind":
+                value = f"{value} {unit} {data_point.get('arrow', '')}".strip()
+            elif unit:
+                value = f"{value} {unit}"
+            draw.text((metrics_left, row_y), label, fill=accent_color, font=metric_font)
+            self._draw_right_text(draw, value, metrics_left + metrics_width, row_y, metric_value_font, text_color)
+
+    def _draw_fast_forecast(self, image, draw, forecast, settings, bounds, text_color, accent_color, units):
+        left, top, right, bottom = bounds
+        days = int(settings.get("forecastDays") or 3)
+        forecast_days = forecast[1:days + 1]
+        if not forecast_days:
+            return
+
+        card_gap = max(4, int((right - left) * 0.015))
+        card_width = max(24, ((right - left) - (card_gap * (len(forecast_days) - 1))) // len(forecast_days))
+        card_height = max(1, bottom - top)
+        day_font = self._get_fast_font(max(10, int(card_height * 0.18)), "bold")
+        temp_font = self._get_fast_font(max(10, int(card_height * 0.16)), "normal")
+        moon_font = self._get_fast_font(max(8, int(card_height * 0.11)), "normal")
+
+        for index, day in enumerate(forecast_days):
+            card_left = left + index * (card_width + card_gap)
+            card_right = card_left + card_width
+            draw.rounded_rectangle(
+                (card_left, top, card_right, bottom),
+                radius=max(3, card_gap),
+                outline=accent_color,
+                width=1
+            )
+            day_label = str(day.get("day", ""))
+            self._draw_centered_fit_text(draw, day_label, card_left + 2, top + 3, card_width - 4, day_font, text_color)
+            icon_size = max(20, min(int(card_width * 0.55), int(card_height * 0.38)))
+            self._paste_icon(image, day.get("icon"), (card_left + (card_width - icon_size) // 2, top + int(card_height * 0.25)), icon_size)
+            suffix = "" if units == "standard" else "°"
+            temps = f"{day.get('high', '')}{suffix} / {day.get('low', '')}{suffix}"
+            self._draw_centered_fit_text(draw, temps, card_left + 2, top + int(card_height * 0.66), card_width - 4, temp_font, text_color)
+            if settings.get("moonPhase") == "true":
+                moon = f"{day.get('moon_phase_pct', '')}% moon"
+                self._draw_centered_fit_text(draw, moon, card_left + 2, top + int(card_height * 0.82), card_width - 4, moon_font, accent_color)
+
+    def _paste_icon(self, image, icon_path, position, size):
+        try:
+            with Image.open(icon_path) as icon:
+                icon = icon.convert("RGBA")
+                icon.thumbnail((size, size), Image.LANCZOS)
+                x, y = position
+                image.paste(icon, (x + (size - icon.width) // 2, y + (size - icon.height) // 2), icon)
+        except Exception as e:
+            logger.warning("Unable to draw weather icon %s: %s", icon_path, e)
+
+    def _get_fast_font(self, size, weight="normal"):
+        return get_font("Jost", size, weight) or get_font("Jost", size) or ImageFont.load_default()
+
+    def _text_height(self, draw, text, font):
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[3] - bbox[1]
+
+    def _text_width(self, draw, text, font):
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0]
+
+    def _draw_right_text(self, draw, text, right_x, y, font, fill):
+        draw.text((right_x - self._text_width(draw, text, font), y), text, fill=fill, font=font)
+
+    def _draw_centered_fit_text(self, draw, text, x, y, width, font, fill):
+        text = str(text)
+        while self._text_width(draw, text, font) > width and len(text) > 4:
+            text = text[:-4].rstrip() + "..."
+        draw.text((x + max(0, (width - self._text_width(draw, text, font)) // 2), y), text, fill=fill, font=font)
 
     def parse_weather_data(self, weather_data, aqi_data, tz, units, time_format, lat):
         current = weather_data.get("current")
