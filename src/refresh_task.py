@@ -9,6 +9,7 @@ from collections import deque
 from datetime import datetime, timezone
 from plugins.plugin_registry import get_plugin_instance
 from utils.image_utils import compute_image_hash
+from utils.performance import PerformanceDiagnostics, is_performance_diagnostics_enabled
 from model import RefreshInfo, PlaylistManager
 from PIL import Image
 
@@ -128,6 +129,7 @@ class RefreshTask:
             latest_refresh = None
             current_dt = None
             try:
+                diagnostics = self._performance_diagnostics()
                 with self.condition:
                     sleep_time = self.device_config.get_config("plugin_cycle_interval_seconds", default=60*60)
 
@@ -143,9 +145,20 @@ class RefreshTask:
                     if not self.running:
                         break
 
-                    playlist_manager = self.device_config.get_playlist_manager()
-                    latest_refresh = self.device_config.get_refresh_info()
-                    current_dt = self._get_current_datetime()
+                    with diagnostics.phase("determine active playlist"):
+                        playlist_manager = self.device_config.get_playlist_manager()
+                        latest_refresh = self.device_config.get_refresh_info()
+                        current_dt = self._get_current_datetime()
+
+                        if not self.manual_update_queue:
+                            if self.device_config.get_config("log_system_stats"):
+                                self.log_system_stats()
+
+                            # handle refresh based on playlists
+                            logger.info(f"Running interval refresh check. | current_time: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                            playlist, plugin_instance = self._determine_next_plugin(playlist_manager, latest_refresh, current_dt)
+                            if plugin_instance:
+                                refresh_action = PlaylistRefresh(playlist, plugin_instance)
 
                     if self.manual_update_queue:
                         # handle immediate update request
@@ -153,41 +166,52 @@ class RefreshTask:
                         job = self.manual_update_queue.popleft()
                         job.mark_running()
                         refresh_action = job.refresh_action
-                    else:
-
-                        if self.device_config.get_config("log_system_stats"):
-                            self.log_system_stats()
-
-                        # handle refresh based on playlists
-                        logger.info(f"Running interval refresh check. | current_time: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                        playlist, plugin_instance = self._determine_next_plugin(playlist_manager, latest_refresh, current_dt)
-                        if plugin_instance:
-                            refresh_action = PlaylistRefresh(playlist, plugin_instance)
 
                 if refresh_action:
-                    plugin_config = self.device_config.get_plugin(refresh_action.get_plugin_id())
-                    if plugin_config is None:
-                        message = f"Plugin config not found for '{refresh_action.get_plugin_id()}'."
-                        if job:
-                            raise ValueError(message)
-                        logger.error(message)
-                        continue
-                    plugin = get_plugin_instance(plugin_config)
-                    image = refresh_action.execute(plugin, self.device_config, current_dt)
-                    image_hash = compute_image_hash(image)
+                    display_updated = False
+                    refresh_info = None
+
+                    with diagnostics.phase("load plugin"):
+                        plugin_config = self.device_config.get_plugin(refresh_action.get_plugin_id())
+                        if plugin_config is None:
+                            message = f"Plugin config not found for '{refresh_action.get_plugin_id()}'."
+                            if job:
+                                raise ValueError(message)
+                            logger.error(message)
+                            continue
+                        plugin = get_plugin_instance(plugin_config)
+
+                    with diagnostics.phase("plugin image generation"):
+                        image = refresh_action.execute(plugin, self.device_config, current_dt)
+
+                    with diagnostics.phase("image hash calculation"):
+                        image_hash = compute_image_hash(image)
 
                     refresh_info = refresh_action.get_refresh_info()
                     refresh_info.update({"refresh_time": current_dt.isoformat(), "image_hash": image_hash})
                     # check if image is the same as current image
                     if image_hash != latest_refresh.image_hash:
                         logger.info(f"Updating display. | refresh_info: {refresh_info}")
-                        self.display_manager.display_image(image, image_settings=plugin.config.get("image_settings", []))
+                        with diagnostics.phase("display manager processing"):
+                            self.display_manager.display_image(image, image_settings=plugin.config.get("image_settings", []))
+                        display_updated = True
                     else:
                         logger.info(f"Image already displayed, skipping refresh. | refresh_info: {refresh_info}")
 
                     # update latest refresh data in the device config
-                    self.device_config.refresh_info = RefreshInfo(**refresh_info)
-                    self.device_config.write_config()
+                    with diagnostics.phase("config write"):
+                        self.device_config.refresh_info = RefreshInfo(**refresh_info)
+                        self.device_config.write_config()
+
+                    diagnostics.log_summary(
+                        "refresh_type=%s | plugin_id=%s | display_updated=%s"
+                        % (
+                            refresh_info.get("refresh_type"),
+                            refresh_info.get("plugin_id"),
+                            display_updated
+                        )
+                    )
+
                     if job:
                         with self.condition:
                             job.mark_done()
@@ -322,6 +346,13 @@ class RefreshTask:
         }
 
         logger.info(f"System Stats: {metrics}")
+
+    def _performance_diagnostics(self):
+        return PerformanceDiagnostics(
+            enabled=is_performance_diagnostics_enabled(self.device_config),
+            logger=logger,
+            prefix="Refresh diagnostics"
+        )
 
 class RefreshAction:
     """Base class for a refresh action. Subclasses should override the methods below."""

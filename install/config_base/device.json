@@ -7,6 +7,7 @@
     "web_server_threads": 2,
     "display_low_resource_mode": null,
     "display_resize_filter": null,
+    "performance_diagnostics": false,
     "orientation": "horizontal",
     "inverted_image": false,
     "scheduler_sleep_time": 60,

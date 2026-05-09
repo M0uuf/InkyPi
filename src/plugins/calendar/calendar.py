@@ -2,6 +2,7 @@ import os
 from utils.app_utils import resolve_path, get_font
 from plugins.base_plugin.base_plugin import BasePlugin
 from plugins.calendar.constants import LOCALE_MAP, FONT_SIZES
+from utils.performance import is_performance_diagnostics_enabled
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import icalendar
 import recurring_ical_events
@@ -82,7 +83,13 @@ class Calendar(BasePlugin):
                 dimensions[1]
             )
         else:
-            image = self.render_image(dimensions, "calendar.html", "calendar.css", template_params)
+            image = self.render_image(
+                dimensions,
+                "calendar.html",
+                "calendar.css",
+                template_params,
+                diagnostics_enabled=is_performance_diagnostics_enabled(device_config)
+            )
 
         if not image:
             raise RuntimeError("Failed to take screenshot, please check logs.")
