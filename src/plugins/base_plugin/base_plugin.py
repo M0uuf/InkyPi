@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import hashlib
 from utils.app_utils import resolve_path, get_fonts
 from utils.image_utils import take_screenshot_html
 from utils.image_loader import AdaptiveImageLoader
@@ -15,6 +16,24 @@ STATIC_DIR = resolve_path("static")
 PLUGINS_DIR = resolve_path("plugins")
 BASE_PLUGIN_DIR =  os.path.join(PLUGINS_DIR, "base_plugin")
 BASE_PLUGIN_RENDER_DIR = os.path.join(BASE_PLUGIN_DIR, "render")
+
+
+def _fingerprint_local_files(file_paths):
+    digest = hashlib.sha256()
+    for file_path in sorted(str(path) for path in file_paths if path):
+        digest.update(file_path.encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            path = Path(file_path)
+            stat = path.stat()
+            digest.update(str(stat.st_size).encode("utf-8"))
+            digest.update(b":")
+            digest.update(str(stat.st_mtime_ns).encode("utf-8"))
+        except OSError as e:
+            logger.warning("Unable to fingerprint render resource %s: %s", file_path, e)
+            digest.update(b"missing")
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 FRAME_STYLES = [
     {
@@ -98,8 +117,12 @@ class BasePlugin:
         template_params["style_sheets"] = css_files
         template_params["width"] = dimensions[0]
         template_params["height"] = dimensions[1]
-        template_params["font_faces"] = get_fonts()
+        font_faces = get_fonts()
+        template_params["font_faces"] = font_faces
         template_params["static_dir"] = STATIC_DIR
+        render_resource_fingerprint = _fingerprint_local_files(
+            [*css_files, *(font.get("url") for font in font_faces)]
+        )
 
         # load and render the given html template
         render_started = time.monotonic()
@@ -115,7 +138,11 @@ class BasePlugin:
         )
 
         screenshot_started = time.monotonic()
-        image = take_screenshot_html(rendered_html, dimensions)
+        image = take_screenshot_html(
+            rendered_html,
+            dimensions,
+            cache_extra=render_resource_fingerprint
+        )
         logger.info(
             "Rendered plugin '%s' HTML to image in %.2fs | dimensions: %sx%s",
             self.get_plugin_id(),
