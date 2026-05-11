@@ -9,6 +9,7 @@ from astral import moon
 import pytz
 from io import BytesIO
 import math
+from urllib.parse import quote
 from utils.app_utils import get_font
 from utils.performance import is_performance_diagnostics_enabled
 
@@ -55,8 +56,8 @@ WEATHER_URL = "https://api.openweathermap.org/data/3.0/onecall?lat={lat}&lon={lo
 AIR_QUALITY_URL = "http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={long}&appid={api_key}"
 GEOCODING_URL = "http://api.openweathermap.org/geo/1.0/reverse?lat={lat}&lon={long}&limit=1&appid={api_key}"
 
-OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={long}&hourly=weather_code,temperature_2m,precipitation,precipitation_probability,relative_humidity_2m,surface_pressure,visibility&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset&current=temperature,windspeed,winddirection,is_day,precipitation,weather_code,apparent_temperature&timezone=auto&models=best_match&forecast_days={forecast_days}"
-OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={long}&hourly=european_aqi,uv_index,uv_index_clear_sky&timezone=auto"
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={long}&hourly=weather_code,temperature_2m,precipitation,precipitation_probability,relative_humidity_2m,surface_pressure,visibility&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset&current=temperature,windspeed,winddirection,is_day,precipitation,weather_code,apparent_temperature&timezone={timezone}&models=best_match&forecast_days={forecast_days}"
+OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={long}&hourly=european_aqi,uv_index,uv_index_clear_sky&timezone={timezone}"
 OPEN_METEO_UNIT_PARAMS = {
     "standard": "temperature_unit=celsius&wind_speed_unit=ms&precipitation_unit=mm",  # temperature is converted to Kelvin later
     "metric":   "temperature_unit=celsius&wind_speed_unit=ms&precipitation_unit=mm",
@@ -124,9 +125,19 @@ class Weather(BasePlugin):
                     template_params = self.parse_weather_data(weather_data, aqi_data, tz, units, time_format, lat)
             elif weather_provider == "OpenMeteo":
                 forecast_days = 7
-                weather_data = self.get_open_meteo_data(lat, long, units, forecast_days + 1)
-                aqi_data = self.get_open_meteo_air_quality(lat, long)
-                template_params = self.parse_open_meteo_data(weather_data, aqi_data, tz, units, time_format, lat)
+                if settings.get('weatherTimeZone', 'locationTimeZone') == 'locationTimeZone':
+                    logger.info("Using location timezone for Open-Meteo data.")
+                    open_meteo_timezone = "auto"
+                    weather_data = self.get_open_meteo_data(lat, long, units, forecast_days + 1, open_meteo_timezone)
+                    wtz = self.parse_open_meteo_timezone(weather_data, tz)
+                    aqi_data = self.get_open_meteo_air_quality(lat, long, open_meteo_timezone)
+                    template_params = self.parse_open_meteo_data(weather_data, aqi_data, wtz, units, time_format, lat)
+                else:
+                    logger.info("Using configured timezone for Open-Meteo data.")
+                    open_meteo_timezone = timezone
+                    weather_data = self.get_open_meteo_data(lat, long, units, forecast_days + 1, open_meteo_timezone)
+                    aqi_data = self.get_open_meteo_air_quality(lat, long, open_meteo_timezone)
+                    template_params = self.parse_open_meteo_data(weather_data, aqi_data, tz, units, time_format, lat)
             else:
                 raise RuntimeError(f"Unknown weather provider: {weather_provider}")
 
@@ -376,10 +387,28 @@ class Weather(BasePlugin):
         data['hourly_forecast'] = self.parse_hourly(weather_data.get('hourly'), tz, time_format, units, daily_forecast)
         return data
 
+    def parse_open_meteo_timezone(self, weather_data, fallback_tz):
+        timezone_name = weather_data.get("timezone")
+        if not timezone_name:
+            return fallback_tz
+        try:
+            return pytz.timezone(timezone_name)
+        except pytz.UnknownTimeZoneError:
+            logger.warning("Unknown Open-Meteo timezone '%s'; using configured timezone.", timezone_name)
+            return fallback_tz
+
+    def parse_open_meteo_time(self, time_str, tz):
+        parsed_time = datetime.fromisoformat(time_str)
+        if parsed_time.tzinfo is None:
+            if hasattr(tz, "localize"):
+                return tz.localize(parsed_time)
+            return parsed_time.replace(tzinfo=tz)
+        return parsed_time.astimezone(tz)
+
     def parse_open_meteo_data(self, weather_data, aqi_data, tz, units, time_format, lat):
         current = weather_data.get("current", {})
         daily = weather_data.get('daily', {})
-        dt = datetime.fromisoformat(current.get('time')).astimezone(tz) if current.get('time') else datetime.now(tz)
+        dt = self.parse_open_meteo_time(current.get('time'), tz) if current.get('time') else datetime.now(tz)
         weather_code = current.get("weather_code", 0)
         is_day = current.get("is_day", 1)
         current_icon = self.map_weather_code_to_icon(weather_code, is_day)
@@ -397,9 +426,9 @@ class Weather(BasePlugin):
         }
 
         data['forecast'] = self.parse_open_meteo_forecast(weather_data.get('daily', {}), units, tz, is_day, lat)
-        data['data_points'] = self.parse_open_meteo_data_points(weather_data, aqi_data, units, tz, time_format)
+        data['data_points'] = self.parse_open_meteo_data_points(weather_data, aqi_data, units, tz, time_format, dt)
         
-        data['hourly_forecast'] = self.parse_open_meteo_hourly(weather_data.get('hourly', {}), units, tz, time_format, daily.get('sunrise', []), daily.get('sunset', []))
+        data['hourly_forecast'] = self.parse_open_meteo_hourly(weather_data.get('hourly', {}), units, tz, time_format, daily.get('sunrise', []), daily.get('sunset', []), dt)
         return data
 
     def map_weather_code_to_icon(self, weather_code, is_day):
@@ -624,7 +653,7 @@ class Weather(BasePlugin):
             hourly.append(hour_forecast)
         return hourly
 
-    def parse_open_meteo_hourly(self, hourly_data, units, tz, time_format, sunrises, sunsets):
+    def parse_open_meteo_hourly(self, hourly_data, units, tz, time_format, sunrises, sunsets, current_time=None):
         hourly = []
         times = hourly_data.get('time', [])
         temperatures = hourly_data.get('temperature_2m', [])
@@ -636,15 +665,15 @@ class Weather(BasePlugin):
         
         sun_map = {}
         for sr_s, ss_s in zip(sunrises, sunsets):
-            sr_dt = datetime.fromisoformat(sr_s).astimezone(tz)
-            ss_dt = datetime.fromisoformat(ss_s).astimezone(tz)
+            sr_dt = self.parse_open_meteo_time(sr_s, tz)
+            ss_dt = self.parse_open_meteo_time(ss_s, tz)
             sun_map[sr_dt.date()] = (sr_dt, ss_dt)
         
-        current_time_in_tz = datetime.now(tz)
+        current_time_in_tz = current_time or datetime.now(tz)
         start_index = 0
         for i, time_str in enumerate(times):
             try:
-                dt_hourly = datetime.fromisoformat(time_str).astimezone(tz)
+                dt_hourly = self.parse_open_meteo_time(time_str, tz)
                 if dt_hourly.date() == current_time_in_tz.date() and dt_hourly.hour >= current_time_in_tz.hour:
                     start_index = i
                     break
@@ -661,7 +690,7 @@ class Weather(BasePlugin):
         sliced_codes = codes[start_index:]
 
         for i in range(min(24, len(sliced_times))):
-            dt = datetime.fromisoformat(sliced_times[i]).astimezone(tz)
+            dt = self.parse_open_meteo_time(sliced_times[i], tz)
             sunrise, sunset = sun_map.get(dt.date(), (None, None))
             is_day = 0
             if sunrise and sunset:
@@ -765,19 +794,19 @@ class Weather(BasePlugin):
 
         return data_points
 
-    def parse_open_meteo_data_points(self, weather_data, aqi_data, units, tz, time_format):
+    def parse_open_meteo_data_points(self, weather_data, aqi_data, units, tz, time_format, current_time=None):
         """Parses current data points from Open-Meteo API response."""
         data_points = []
         daily_data = weather_data.get('daily', {})
         current_data = weather_data.get('current', {})
         hourly_data = weather_data.get('hourly', {})
 
-        current_time = datetime.now(tz)
+        current_time = current_time or datetime.now(tz)
 
         # Sunrise
         sunrise_times = daily_data.get('sunrise', [])
         if sunrise_times:
-            sunrise_dt = datetime.fromisoformat(sunrise_times[0]).astimezone(tz)
+            sunrise_dt = self.parse_open_meteo_time(sunrise_times[0], tz)
             data_points.append({
                 "label": "Sunrise",
                 "measurement": self.format_time(sunrise_dt, time_format, include_am_pm=False),
@@ -790,7 +819,7 @@ class Weather(BasePlugin):
         # Sunset
         sunset_times = daily_data.get('sunset', [])
         if sunset_times:
-            sunset_dt = datetime.fromisoformat(sunset_times[0]).astimezone(tz)
+            sunset_dt = self.parse_open_meteo_time(sunset_times[0], tz)
             data_points.append({
                 "label": "Sunset",
                 "measurement": self.format_time(sunset_dt, time_format, include_am_pm=False),
@@ -816,7 +845,8 @@ class Weather(BasePlugin):
         humidity_values = hourly_data.get('relative_humidity_2m', [])
         for i, time_str in enumerate(humidity_hourly_times):
             try:
-                if datetime.fromisoformat(time_str).astimezone(tz).hour == current_time.hour:
+                parsed_time = self.parse_open_meteo_time(time_str, tz)
+                if parsed_time.date() == current_time.date() and parsed_time.hour == current_time.hour:
                     current_humidity = int(humidity_values[i])
                     break
             except ValueError:
@@ -833,7 +863,8 @@ class Weather(BasePlugin):
         pressure_values = hourly_data.get('surface_pressure', [])
         for i, time_str in enumerate(pressure_hourly_times):
             try:
-                if datetime.fromisoformat(time_str).astimezone(tz).hour == current_time.hour:
+                parsed_time = self.parse_open_meteo_time(time_str, tz)
+                if parsed_time.date() == current_time.date() and parsed_time.hour == current_time.hour:
                     current_pressure = int(pressure_values[i])
                     break
             except ValueError:
@@ -850,7 +881,8 @@ class Weather(BasePlugin):
         current_uv_index = "N/A"
         for i, time_str in enumerate(uv_index_hourly_times):
             try:
-                if datetime.fromisoformat(time_str).astimezone(tz).hour == current_time.hour:
+                parsed_time = self.parse_open_meteo_time(time_str, tz)
+                if parsed_time.date() == current_time.date() and parsed_time.hour == current_time.hour:
                     current_uv_index = uv_index_values[i]
                     break
             except ValueError:
@@ -873,7 +905,8 @@ class Weather(BasePlugin):
             visibility_max = 10.                # km
         for i, time_str in enumerate(visibility_hourly_times):
             try:
-                if datetime.fromisoformat(time_str).astimezone(tz).hour == current_time.hour:
+                parsed_time = self.parse_open_meteo_time(time_str, tz)
+                if parsed_time.date() == current_time.date() and parsed_time.hour == current_time.hour:
                     current_visibility = visibility_values[i]*visibility_conversion
                     at_max_visibility = current_visibility >= visibility_max
                     break
@@ -896,7 +929,8 @@ class Weather(BasePlugin):
         current_aqi = "N/A"
         for i, time_str in enumerate(aqi_hourly_times):
             try:
-                if datetime.fromisoformat(time_str).astimezone(tz).hour == current_time.hour:
+                parsed_time = self.parse_open_meteo_time(time_str, tz)
+                if parsed_time.date() == current_time.date() and parsed_time.hour == current_time.hour:
                     current_aqi = round(aqi_values[i], 1)
                     break
             except ValueError:
@@ -963,9 +997,14 @@ class Weather(BasePlugin):
 
         return location_str
 
-    def get_open_meteo_data(self, lat, long, units, forecast_days):
+    def get_open_meteo_data(self, lat, long, units, forecast_days, timezone_name="auto"):
         unit_params = OPEN_METEO_UNIT_PARAMS[units]
-        url = OPEN_METEO_FORECAST_URL.format(lat=lat, long=long, forecast_days=forecast_days) + f"&{unit_params}"
+        url = OPEN_METEO_FORECAST_URL.format(
+            lat=lat,
+            long=long,
+            forecast_days=forecast_days,
+            timezone=quote(timezone_name, safe="")
+        ) + f"&{unit_params}"
         response = requests.get(url, timeout=30)
 
         if not 200 <= response.status_code < 300:
@@ -974,8 +1013,8 @@ class Weather(BasePlugin):
         
         return response.json()
 
-    def get_open_meteo_air_quality(self, lat, long):
-        url = OPEN_METEO_AIR_QUALITY_URL.format(lat=lat, long=long)
+    def get_open_meteo_air_quality(self, lat, long, timezone_name="auto"):
+        url = OPEN_METEO_AIR_QUALITY_URL.format(lat=lat, long=long, timezone=quote(timezone_name, safe=""))
         response = requests.get(url, timeout=30)
         if not 200 <= response.status_code < 300:
             logger.error(f"Failed to retrieve Open-Meteo air quality data: {response.content}")

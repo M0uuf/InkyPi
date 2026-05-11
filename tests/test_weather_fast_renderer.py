@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PIL import Image
+import pytz
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -149,6 +150,49 @@ def build_openweather_payload():
     }
 
 
+def build_openmeteo_payload():
+    return {
+        "timezone": "Pacific/Honolulu",
+        "current": {
+            "time": "2026-05-09T23:30",
+            "temperature": 24,
+            "apparent_temperature": 25,
+            "weather_code": 0,
+            "is_day": 0,
+            "windspeed": 4,
+            "winddirection": 90
+        },
+        "daily": {
+            "sunrise": ["2026-05-09T06:00", "2026-05-10T06:01"],
+            "sunset": ["2026-05-09T18:00", "2026-05-10T18:01"],
+            "time": ["2026-05-09", "2026-05-10"],
+            "weathercode": [0, 1],
+            "temperature_2m_max": [27, 28],
+            "temperature_2m_min": [20, 21]
+        },
+        "hourly": {
+            "time": ["2026-05-09T22:00", "2026-05-09T23:00", "2026-05-10T00:00"],
+            "temperature_2m": [22, 23, 24],
+            "precipitation_probability": [10, 20, 30],
+            "precipitation": [0.1, 0.2, 0.3],
+            "weather_code": [0, 0, 1],
+            "relative_humidity_2m": [50, 60, 70],
+            "surface_pressure": [1000, 1001, 1002],
+            "visibility": [8000, 9000, 10000]
+        }
+    }
+
+
+def build_openmeteo_air_quality_payload():
+    return {
+        "hourly": {
+            "time": ["2026-05-09T22:00", "2026-05-09T23:00", "2026-05-10T00:00"],
+            "uv_index": [1, 2, 3],
+            "european_aqi": [20, 40, 60]
+        }
+    }
+
+
 def build_base_weather_settings(provider="OpenWeatherMap", latitude="52.5", longitude="13.4"):
     return {
         "latitude": latitude,
@@ -239,12 +283,12 @@ def test_weather_openmeteo_accepts_zero_latitude_and_longitude(monkeypatch):
     plugin = build_weather_plugin()
     captured = {}
 
-    def fake_get_open_meteo_data(lat, long, units, forecast_days):
-        captured["weather"] = (lat, long)
+    def fake_get_open_meteo_data(lat, long, units, forecast_days, timezone_name="auto"):
+        captured["weather"] = (lat, long, timezone_name)
         return {}
 
-    def fake_get_open_meteo_air_quality(lat, long):
-        captured["air_quality"] = (lat, long)
+    def fake_get_open_meteo_air_quality(lat, long, timezone_name="auto"):
+        captured["air_quality"] = (lat, long, timezone_name)
         return {}
 
     monkeypatch.setattr(plugin, "get_open_meteo_data", fake_get_open_meteo_data)
@@ -257,8 +301,99 @@ def test_weather_openmeteo_accepts_zero_latitude_and_longitude(monkeypatch):
     )
 
     assert image.size == (800, 480)
-    assert captured["weather"] == (0.0, 0.0)
-    assert captured["air_quality"] == (0.0, 0.0)
+    assert captured["weather"] == (0.0, 0.0, "UTC")
+    assert captured["air_quality"] == (0.0, 0.0, "UTC")
+
+
+def test_openmeteo_location_timezone_parses_offsetless_times_as_location_local():
+    plugin = build_weather_plugin()
+    weather_data = build_openmeteo_payload()
+    air_quality = build_openmeteo_air_quality_payload()
+    location_tz = plugin.parse_open_meteo_timezone(weather_data, pytz.timezone("UTC"))
+
+    parsed = plugin.parse_open_meteo_data(weather_data, air_quality, location_tz, "metric", "24h", 21.3)
+    data_points = {point["label"]: point for point in parsed["data_points"]}
+
+    assert parsed["current_date"] == "Saturday, May 09"
+    assert parsed["hourly_forecast"][0]["time"] == "23:00"
+    assert data_points["Sunrise"]["measurement"] == "06:00"
+    assert data_points["Sunset"]["measurement"] == "18:00"
+    assert data_points["Humidity"]["measurement"] == 60
+    assert data_points["Pressure"]["measurement"] == 1001
+    assert data_points["UV Index"]["measurement"] == 2
+    assert data_points["Visibility"]["measurement"] == "9.0"
+
+
+def test_openmeteo_configured_timezone_is_requested_and_used(monkeypatch):
+    plugin = build_weather_plugin()
+    captured = {}
+
+    def fake_get_open_meteo_data(lat, long, units, forecast_days, timezone_name="auto"):
+        captured["weather_timezone"] = timezone_name
+        weather_data = build_openmeteo_payload()
+        return {
+            **weather_data,
+            "timezone": "Pacific/Honolulu",
+            "current": {**weather_data["current"], "time": "2026-05-10T09:30"},
+            "hourly": {
+                **weather_data["hourly"],
+                "time": ["2026-05-10T08:00", "2026-05-10T09:00", "2026-05-10T10:00"]
+            }
+        }
+
+    def fake_get_open_meteo_air_quality(lat, long, timezone_name="auto"):
+        captured["air_quality_timezone"] = timezone_name
+        air_quality_data = build_openmeteo_air_quality_payload()
+        return {
+            "hourly": {
+                **air_quality_data["hourly"],
+                "time": ["2026-05-10T08:00", "2026-05-10T09:00", "2026-05-10T10:00"]
+            }
+        }
+
+    def fake_render_fast_image(dimensions, template_params):
+        captured["current_date"] = template_params["current_date"]
+        return Image.new("RGB", dimensions, "white")
+
+    monkeypatch.setattr(plugin, "get_open_meteo_data", fake_get_open_meteo_data)
+    monkeypatch.setattr(plugin, "get_open_meteo_air_quality", fake_get_open_meteo_air_quality)
+    monkeypatch.setattr(plugin, "render_fast_image", fake_render_fast_image)
+
+    settings = build_base_weather_settings(provider="OpenMeteo", latitude="0", longitude="0")
+    settings["weatherTimeZone"] = "localTimeZone"
+
+    image = plugin.generate_image(settings, FakeDeviceConfig())
+
+    assert image.size == (800, 480)
+    assert captured["weather_timezone"] == "UTC"
+    assert captured["air_quality_timezone"] == "UTC"
+    assert captured["current_date"] == "Sunday, May 10"
+
+
+def test_openmeteo_location_timezone_requests_auto(monkeypatch):
+    plugin = build_weather_plugin()
+    captured = {}
+
+    def fake_get_open_meteo_data(lat, long, units, forecast_days, timezone_name="auto"):
+        captured["weather_timezone"] = timezone_name
+        return build_openmeteo_payload()
+
+    def fake_get_open_meteo_air_quality(lat, long, timezone_name="auto"):
+        captured["air_quality_timezone"] = timezone_name
+        return build_openmeteo_air_quality_payload()
+
+    monkeypatch.setattr(plugin, "get_open_meteo_data", fake_get_open_meteo_data)
+    monkeypatch.setattr(plugin, "get_open_meteo_air_quality", fake_get_open_meteo_air_quality)
+    monkeypatch.setattr(plugin, "render_fast_image", lambda dimensions, template_params: Image.new("RGB", dimensions, "white"))
+
+    settings = build_base_weather_settings(provider="OpenMeteo", latitude="0", longitude="0")
+    settings["weatherTimeZone"] = "locationTimeZone"
+
+    image = plugin.generate_image(settings, FakeDeviceConfig())
+
+    assert image.size == (800, 480)
+    assert captured["weather_timezone"] == "auto"
+    assert captured["air_quality_timezone"] == "auto"
 
 
 def test_weather_accepts_zero_longitude(monkeypatch):
