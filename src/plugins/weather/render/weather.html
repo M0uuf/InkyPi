@@ -80,11 +80,15 @@
   {% endif %}
 </div>
 
+{% if plugin_settings.displayGraph and plugin_settings.displayGraph == "true" %}
 <script src="{{static_dir}}/scripts/chart.js" charset="UTF-8"></script>
 
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     const canvas = document.getElementById('hourlyTemperatureChart');
+    if (!canvas) {
+      return;
+    }
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
 
@@ -310,4 +314,5 @@
     chart.update();
   });
 </script>
+{% endif %}
 {% endblock %}

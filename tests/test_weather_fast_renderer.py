@@ -17,6 +17,7 @@ except ModuleNotFoundError:
     sys.modules["astral"] = astral_module
 
 from plugins.weather.weather import Weather
+import plugins.base_plugin.base_plugin as base_plugin_module
 
 
 class FakeDeviceConfig:
@@ -108,6 +109,60 @@ def build_template_params():
             "accentColor": "#333333"
         }
     }
+
+
+def render_weather_template(monkeypatch, display_graph):
+    plugin = build_weather_plugin()
+    template_params = build_template_params()
+    template_params["hourly_forecast"] = [
+        {
+            "time": "08:00",
+            "temperature": 20,
+            "precipitation": 0.1,
+            "rain": 0.0,
+            "icon": plugin.get_plugin_dir("icons/01d.png")
+        },
+        {
+            "time": "09:00",
+            "temperature": 21,
+            "precipitation": 0.2,
+            "rain": 0.1,
+            "icon": plugin.get_plugin_dir("icons/02d.png")
+        }
+    ]
+    template_params["plugin_settings"]["displayGraph"] = display_graph
+    template_params["plugin_settings"]["displayGraphIcons"] = "false"
+    template_params["plugin_settings"]["displayRain"] = "false"
+
+    captured = {}
+
+    def fake_take_screenshot_html(rendered_html, dimensions, cache_extra=None):
+        captured["rendered_html"] = rendered_html
+        return Image.new("RGB", dimensions, "white")
+
+    monkeypatch.setattr(base_plugin_module, "take_screenshot_html", fake_take_screenshot_html)
+
+    image = plugin.render_image((800, 480), "weather.html", "weather.css", template_params)
+
+    assert image.size == (800, 480)
+    return captured["rendered_html"]
+
+
+def test_weather_html_omits_graph_script_when_graph_disabled(monkeypatch):
+    rendered_html = render_weather_template(monkeypatch, "false")
+
+    assert 'id="hourlyTemperatureChart"' not in rendered_html
+    assert "scripts/chart.js" not in rendered_html
+    assert "getContext('2d')" not in rendered_html
+
+
+def test_weather_html_keeps_graph_script_and_canvas_when_graph_enabled(monkeypatch):
+    rendered_html = render_weather_template(monkeypatch, "true")
+
+    assert 'id="hourlyTemperatureChart"' in rendered_html
+    assert "scripts/chart.js" in rendered_html
+    assert "if (!canvas)" in rendered_html
+    assert "new Chart(ctx" in rendered_html
 
 
 def build_openweather_payload():
