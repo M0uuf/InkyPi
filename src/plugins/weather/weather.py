@@ -64,6 +64,23 @@ OPEN_METEO_UNIT_PARAMS = {
 }
 
 class Weather(BasePlugin):
+    def _parse_coordinate(self, settings, key, label, minimum, maximum):
+        raw_value = settings.get(key)
+        if raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
+            raise RuntimeError(f"{label} is required.")
+
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            raise RuntimeError(f"{label} must be a valid number.")
+
+        if not math.isfinite(value):
+            raise RuntimeError(f"{label} must be a valid number.")
+
+        if value < minimum or value > maximum:
+            raise RuntimeError(f"{label} must be between {minimum} and {maximum}.")
+        return value
+
     def generate_settings_template(self):
         template_params = super().generate_settings_template()
         template_params['api_key'] = {
@@ -75,10 +92,8 @@ class Weather(BasePlugin):
         return template_params
 
     def generate_image(self, settings, device_config):
-        lat = float(settings.get('latitude'))
-        long = float(settings.get('longitude'))
-        if not lat or not long:
-            raise RuntimeError("Latitude and Longitude are required.")
+        lat = self._parse_coordinate(settings, "latitude", "Latitude", -90, 90)
+        long = self._parse_coordinate(settings, "longitude", "Longitude", -180, 180)
 
         units = settings.get('units')
         if not units or units not in ['metric', 'imperial', 'standard']:
