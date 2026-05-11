@@ -1,6 +1,7 @@
 import sys
 import types
 import logging
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -379,6 +380,45 @@ def test_openmeteo_location_timezone_parses_offsetless_times_as_location_local()
     assert data_points["Pressure"]["measurement"] == 1001
     assert data_points["UV Index"]["measurement"] == 2
     assert data_points["Visibility"]["measurement"] == "9.0"
+
+
+def test_openmeteo_visibility_uses_na_when_current_hour_is_missing():
+    plugin = build_weather_plugin()
+    weather_data = deepcopy(build_openmeteo_payload())
+    weather_data["hourly"]["time"] = ["2026-05-09T20:00", "2026-05-09T21:00", "2026-05-09T22:00"]
+    air_quality = build_openmeteo_air_quality_payload()
+    location_tz = plugin.parse_open_meteo_timezone(weather_data, pytz.timezone("UTC"))
+
+    parsed = plugin.parse_open_meteo_data(weather_data, air_quality, location_tz, "metric", "24h", 21.3)
+    data_points = {point["label"]: point for point in parsed["data_points"]}
+
+    assert data_points["Visibility"]["measurement"] == "N/A"
+
+
+def test_openmeteo_visibility_uses_na_when_values_are_shorter_than_times():
+    plugin = build_weather_plugin()
+    weather_data = deepcopy(build_openmeteo_payload())
+    weather_data["hourly"]["visibility"] = [8000]
+    air_quality = build_openmeteo_air_quality_payload()
+    location_tz = plugin.parse_open_meteo_timezone(weather_data, pytz.timezone("UTC"))
+
+    parsed = plugin.parse_open_meteo_data(weather_data, air_quality, location_tz, "metric", "24h", 21.3)
+    data_points = {point["label"]: point for point in parsed["data_points"]}
+
+    assert data_points["Visibility"]["measurement"] == "N/A"
+
+
+def test_openmeteo_visibility_keeps_max_prefix_for_valid_data():
+    plugin = build_weather_plugin()
+    weather_data = deepcopy(build_openmeteo_payload())
+    weather_data["hourly"]["visibility"] = [8000, 10000, 9000]
+    air_quality = build_openmeteo_air_quality_payload()
+    location_tz = plugin.parse_open_meteo_timezone(weather_data, pytz.timezone("UTC"))
+
+    parsed = plugin.parse_open_meteo_data(weather_data, air_quality, location_tz, "metric", "24h", 21.3)
+    data_points = {point["label"]: point for point in parsed["data_points"]}
+
+    assert data_points["Visibility"]["measurement"] == "\u226510.0"
 
 
 def test_openmeteo_configured_timezone_is_requested_and_used(monkeypatch):
