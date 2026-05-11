@@ -149,6 +149,24 @@ def build_openweather_payload():
     }
 
 
+def build_base_weather_settings(provider="OpenWeatherMap", latitude="52.5", longitude="13.4"):
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "units": "metric",
+        "weatherProvider": provider,
+        "weatherTimeZone": "localTimeZone",
+        "titleSelection": "custom",
+        "customTitle": "Test Location",
+        "renderMode": "fast",
+        "displayRefreshTime": "true",
+        "displayMetrics": "true",
+        "displayForecast": "true",
+        "forecastDays": "3",
+        "moonPhase": "false"
+    }
+
+
 def test_weather_fast_renderer_outputs_horizontal_and_vertical_images():
     plugin = build_weather_plugin()
     params = build_template_params()
@@ -190,6 +208,118 @@ def test_weather_fast_mode_generate_image_does_not_use_html_renderer(monkeypatch
 
     assert isinstance(image, Image.Image)
     assert image.size == (800, 480)
+
+
+def test_weather_openweather_accepts_zero_latitude_and_longitude(monkeypatch):
+    plugin = build_weather_plugin()
+    captured = {}
+
+    def fake_get_weather_data(api_key, units, lat, long):
+        captured["weather"] = (lat, long)
+        return build_openweather_payload()
+
+    def fake_get_air_quality(api_key, lat, long):
+        captured["air_quality"] = (lat, long)
+        return {"list": [{"main": {"aqi": 1}}]}
+
+    monkeypatch.setattr(plugin, "get_weather_data", fake_get_weather_data)
+    monkeypatch.setattr(plugin, "get_air_quality", fake_get_air_quality)
+
+    image = plugin.generate_image(
+        build_base_weather_settings(latitude="0", longitude="0"),
+        FakeDeviceConfig()
+    )
+
+    assert image.size == (800, 480)
+    assert captured["weather"] == (0.0, 0.0)
+    assert captured["air_quality"] == (0.0, 0.0)
+
+
+def test_weather_openmeteo_accepts_zero_latitude_and_longitude(monkeypatch):
+    plugin = build_weather_plugin()
+    captured = {}
+
+    def fake_get_open_meteo_data(lat, long, units, forecast_days):
+        captured["weather"] = (lat, long)
+        return {}
+
+    def fake_get_open_meteo_air_quality(lat, long):
+        captured["air_quality"] = (lat, long)
+        return {}
+
+    monkeypatch.setattr(plugin, "get_open_meteo_data", fake_get_open_meteo_data)
+    monkeypatch.setattr(plugin, "get_open_meteo_air_quality", fake_get_open_meteo_air_quality)
+    monkeypatch.setattr(plugin, "parse_open_meteo_data", lambda *args, **kwargs: build_template_params())
+
+    image = plugin.generate_image(
+        build_base_weather_settings(provider="OpenMeteo", latitude="0", longitude="0"),
+        FakeDeviceConfig()
+    )
+
+    assert image.size == (800, 480)
+    assert captured["weather"] == (0.0, 0.0)
+    assert captured["air_quality"] == (0.0, 0.0)
+
+
+def test_weather_accepts_zero_longitude(monkeypatch):
+    plugin = build_weather_plugin()
+    captured = {}
+
+    def fake_get_weather_data(api_key, units, lat, long):
+        captured["coords"] = (lat, long)
+        return build_openweather_payload()
+
+    monkeypatch.setattr(plugin, "get_weather_data", fake_get_weather_data)
+    monkeypatch.setattr(plugin, "get_air_quality", lambda api_key, lat, long: {"list": [{"main": {"aqi": 1}}]})
+
+    image = plugin.generate_image(
+        build_base_weather_settings(latitude="51.5", longitude="0"),
+        FakeDeviceConfig()
+    )
+
+    assert image.size == (800, 480)
+    assert captured["coords"] == (51.5, 0.0)
+
+
+def test_weather_rejects_missing_empty_and_non_numeric_coordinates():
+    plugin = build_weather_plugin()
+    settings = build_base_weather_settings()
+
+    for key, value, expected_error in [
+        ("latitude", None, "Latitude is required."),
+        ("latitude", "", "Latitude is required."),
+        ("longitude", None, "Longitude is required."),
+        ("longitude", " ", "Longitude is required."),
+        ("latitude", "north", "Latitude must be a valid number."),
+        ("longitude", "east", "Longitude must be a valid number.")
+    ]:
+        invalid_settings = dict(settings)
+        invalid_settings[key] = value
+        try:
+            plugin.generate_image(invalid_settings, FakeDeviceConfig())
+        except RuntimeError as exc:
+            assert str(exc) == expected_error
+        else:
+            raise AssertionError(f"Expected RuntimeError for {key}={value!r}")
+
+
+def test_weather_rejects_out_of_range_coordinates():
+    plugin = build_weather_plugin()
+
+    for key, value, expected_error in [
+        ("latitude", "90.1", "Latitude must be between -90 and 90."),
+        ("latitude", "-90.1", "Latitude must be between -90 and 90."),
+        ("longitude", "180.1", "Longitude must be between -180 and 180."),
+        ("longitude", "-180.1", "Longitude must be between -180 and 180.")
+    ]:
+        invalid_settings = build_base_weather_settings()
+        invalid_settings[key] = value
+        try:
+            plugin.generate_image(invalid_settings, FakeDeviceConfig())
+        except RuntimeError as exc:
+            assert str(exc) == expected_error
+        else:
+            raise AssertionError(f"Expected RuntimeError for {key}={value!r}")
 
 
 def test_weather_unknown_render_mode_warns_and_uses_html_renderer(monkeypatch, caplog):
