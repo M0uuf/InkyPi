@@ -291,7 +291,11 @@ def test_weather_rejects_missing_empty_and_non_numeric_coordinates():
         ("longitude", None, "Longitude is required."),
         ("longitude", " ", "Longitude is required."),
         ("latitude", "north", "Latitude must be a valid number."),
-        ("longitude", "east", "Longitude must be a valid number.")
+        ("longitude", "east", "Longitude must be a valid number."),
+        ("latitude", "nan", "Latitude must be a valid number."),
+        ("longitude", "nan", "Longitude must be a valid number."),
+        ("latitude", "inf", "Latitude must be a valid number."),
+        ("longitude", "-inf", "Longitude must be a valid number.")
     ]:
         invalid_settings = dict(settings)
         invalid_settings[key] = value

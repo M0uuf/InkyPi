@@ -74,6 +74,9 @@ class Weather(BasePlugin):
         except (TypeError, ValueError):
             raise RuntimeError(f"{label} must be a valid number.")
 
+        if not math.isfinite(value):
+            raise RuntimeError(f"{label} must be a valid number.")
+
         if value < minimum or value > maximum:
             raise RuntimeError(f"{label} must be between {minimum} and {maximum}.")
         return value
