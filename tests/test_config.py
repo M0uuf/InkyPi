@@ -1,10 +1,35 @@
 import json
+import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from config import Config
+
+
+class StubModel:
+    def __init__(self, data):
+        self.data = data
+
+    def to_dict(self):
+        return self.data
+
+
+def build_writable_config(tmp_path):
+    config = Config.__new__(Config)
+    config.config_file = str(tmp_path / "device.json")
+    config.config = {"name": "Before"}
+    config.playlist_manager = StubModel({"playlists": [], "active_playlist": None})
+    config.refresh_info = StubModel({
+        "refresh_time": None,
+        "image_hash": None,
+        "refresh_type": None,
+        "plugin_id": None
+    })
+    return config
 
 
 def test_config_loads_only_supported_builtin_plugins(tmp_path):
@@ -91,3 +116,71 @@ def test_config_caps_web_server_threads():
     config.config = {"web_server_threads": 99}
 
     assert config.get_web_server_threads(default=2, max_threads=8) == 8
+
+
+def test_write_config_uses_same_directory_atomic_replace(monkeypatch, tmp_path):
+    config = build_writable_config(tmp_path)
+    replace_calls = []
+    real_replace = os.replace
+
+    def capture_replace(src, dst):
+        replace_calls.append((Path(src), Path(dst)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", capture_replace)
+
+    config.update_config({"name": "Atomic"})
+
+    assert replace_calls
+    temp_path, destination = replace_calls[0]
+    assert temp_path.parent == tmp_path
+    assert destination == tmp_path / "device.json"
+    assert not temp_path.exists()
+
+    raw_config = (tmp_path / "device.json").read_text()
+    assert raw_config.endswith("\n")
+    assert '\n    "name": "Atomic",' in raw_config
+    saved_config = json.loads(raw_config)
+    assert saved_config["name"] == "Atomic"
+    assert saved_config["playlist_config"] == {"playlists": [], "active_playlist": None}
+    assert saved_config["refresh_info"]["plugin_id"] is None
+
+
+def test_write_raw_config_uses_atomic_writer(monkeypatch, tmp_path):
+    config = build_writable_config(tmp_path)
+    called = {}
+
+    def capture_atomic_write(config_data):
+        called["config_data"] = config_data.copy()
+
+    monkeypatch.setattr(config, "_atomic_write_json", capture_atomic_write)
+
+    config.write_raw_config()
+
+    assert called["config_data"] == {"name": "Before"}
+
+
+def test_write_config_serializes_concurrent_writes(monkeypatch, tmp_path):
+    config = build_writable_config(tmp_path)
+    active_writes = 0
+    max_active_writes = 0
+    counter_lock = threading.Lock()
+
+    def slow_atomic_write(config_data):
+        nonlocal active_writes, max_active_writes
+        with counter_lock:
+            active_writes += 1
+            max_active_writes = max(max_active_writes, active_writes)
+        time.sleep(0.02)
+        with counter_lock:
+            active_writes -= 1
+
+    monkeypatch.setattr(config, "_atomic_write_json", slow_atomic_write)
+
+    threads = [threading.Thread(target=config.write_config) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert max_active_writes == 1
