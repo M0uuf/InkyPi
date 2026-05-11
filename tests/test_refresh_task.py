@@ -255,7 +255,7 @@ def test_refresh_diagnostics_are_disabled_by_default(monkeypatch, caplog):
     assert "Refresh diagnostics summary" not in caplog.text
 
 
-def test_determine_next_plugin_honors_short_plugin_interval_despite_global_cycle():
+def test_determine_next_plugin_honors_short_plugin_interval_despite_scheduler_check_interval():
     playlist = Playlist("Default", "00:00", "24:00", [{
         "plugin_id": "weather",
         "name": "Weather",
@@ -265,7 +265,7 @@ def test_determine_next_plugin_honors_short_plugin_interval_despite_global_cycle
     }])
     config = FakeDeviceConfig(
         playlist,
-        values={"plugin_cycle_interval_seconds": 3600}
+        values={"scheduler_check_interval_seconds": 3600}
     )
     task = RefreshTask(config, FakeDisplayManager())
 

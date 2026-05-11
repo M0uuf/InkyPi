@@ -40,18 +40,18 @@
             }
         }
 
-        let pluginCycleIntervalSeconds = {{ device_settings.plugin_cycle_interval_seconds | default(3600) | tojson }};
+        let schedulerCheckIntervalSeconds = {{ device_settings.scheduler_check_interval_seconds | default(60) | tojson }};
     
         // Function to populate the fields
         function populateIntervalFields() {
             const intervalInput = document.getElementById('interval');
             const unitSelect = document.getElementById('unit');
 
-            // Check if pluginCycleIntervalSeconds is valid
-            if (pluginCycleIntervalSeconds !== null && pluginCycleIntervalSeconds !== undefined) {
+            // Check if schedulerCheckIntervalSeconds is valid
+            if (schedulerCheckIntervalSeconds !== null && schedulerCheckIntervalSeconds !== undefined) {
                 // Convert seconds to minutes and hours
-                let intervalInMinutes = Math.floor(pluginCycleIntervalSeconds / 60);
-                let intervalInHours = Math.floor(pluginCycleIntervalSeconds / 3600);
+                let intervalInMinutes = Math.floor(schedulerCheckIntervalSeconds / 60);
+                let intervalInHours = Math.floor(schedulerCheckIntervalSeconds / 3600);
 
                 // Determine which unit to use (minute or hour) based on the interval
                 if (intervalInHours > 0) {
@@ -177,8 +177,8 @@
                 </div>
                 <div class="form-group">
                     <div class="form-group">
-                        <label for="interval">Plugin Cycle Interval:</label>
-                        <span title="Determines how often the display switches to a new plugin.">ⓘ</span>
+                        <label for="interval">Scheduler Check Interval:</label>
+                        <span title="How often the background task checks whether any plugin instance is due. Each plugin instance still controls its own refresh interval or schedule.">ⓘ</span>
                         <span>Every</span>
                         <input type="number" id="interval" name="interval" class="form-input" required min="1">
                         <select id="unit" name="unit" class="form-input" required>

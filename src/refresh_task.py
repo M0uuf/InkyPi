@@ -103,7 +103,7 @@ class RefreshTask:
     def _run(self):
         """Background task that manages the periodic refresh of the display.
 
-        This function runs in a loop, sleeping for a configured duration (`plugin_cycle_interval_seconds`) or until
+        This function runs in a loop, sleeping for the configured `scheduler_check_interval_seconds` duration or until
         manually triggered via `manual_update()`. Determines the next plugin to refresh based on active playlists and
         updates the display accordingly.
 
