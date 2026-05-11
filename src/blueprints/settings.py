@@ -38,8 +38,8 @@ def save_settings():
     try:
         form_data = request.form.to_dict()
 
-        previous_interval_seconds = device_config.get_config("scheduler_check_interval_seconds")
-        settings, scheduler_interval_changed = build_device_settings_update(form_data, previous_interval_seconds)
+        previous_config = device_config.get_config()
+        settings, scheduler_interval_changed = build_device_settings_update(form_data, previous_config)
         device_config.update_config(settings)
 
         if scheduler_interval_changed:

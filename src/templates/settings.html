@@ -196,6 +196,111 @@
 
                 <div class="collapsible">
                     <button type="button" class="collapsible-header" onclick="toggleCollapsible(this)">
+                        Advanced Settings <span class="collapsible-icon">▼</span>
+                    </button>
+                    <div class="settings-container collapsible-content">
+                        <div class="form-group">
+                            <label for="currentImagePollIntervalSeconds" class="form-label">Current Image Poll Interval:</label>
+                            <span title="How often browser pages check for a newly displayed image.">ⓘ</span>
+                            <input
+                                type="number"
+                                id="currentImagePollIntervalSeconds"
+                                name="currentImagePollIntervalSeconds"
+                                class="form-input"
+                                required
+                                min="5"
+                                max="3600"
+                                value="{{ device_settings.current_image_poll_interval_seconds | default(15) }}"
+                            >
+                            <span>seconds</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="webServerThreads" class="form-label">Web Server Threads:</label>
+                            <span title="Waitress worker threads. Changes apply after restart.">ⓘ</span>
+                            <input
+                                type="number"
+                                id="webServerThreads"
+                                name="webServerThreads"
+                                class="form-input"
+                                required
+                                min="1"
+                                max="8"
+                                value="{{ device_settings.web_server_threads | default(2) }}"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="displayLowResourceMode" class="form-label">Display Low-Resource Mode:</label>
+                            <span title="Auto lets InkyPi choose based on the device. Enabled uses cheaper display processing.">ⓘ</span>
+                            <select id="displayLowResourceMode" name="displayLowResourceMode" class="form-input">
+                                {% set low_resource_mode = device_settings.get('display_low_resource_mode') %}
+                                <option value="auto" {% if low_resource_mode is none %}selected{% endif %}>Auto</option>
+                                <option value="true" {% if low_resource_mode == true or low_resource_mode == 'true' %}selected{% endif %}>Enabled</option>
+                                <option value="false" {% if low_resource_mode == false or low_resource_mode == 'false' %}selected{% endif %}>Disabled</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="displayResizeFilter" class="form-label">Display Resize Filter:</label>
+                            <span title="Optional override for the display resize filter. Auto uses low-resource or high-quality defaults.">ⓘ</span>
+                            <select id="displayResizeFilter" name="displayResizeFilter" class="form-input">
+                                {% set resize_filter = device_settings.get('display_resize_filter') %}
+                                <option value="" {% if not resize_filter %}selected{% endif %}>Auto</option>
+                                <option value="nearest" {% if resize_filter == 'nearest' %}selected{% endif %}>Nearest</option>
+                                <option value="bilinear" {% if resize_filter == 'bilinear' %}selected{% endif %}>Bilinear</option>
+                                <option value="bicubic" {% if resize_filter == 'bicubic' %}selected{% endif %}>Bicubic</option>
+                                <option value="lanczos" {% if resize_filter == 'lanczos' %}selected{% endif %}>Lanczos</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group nowrap">
+                            <label class="form-label" for="performanceDiagnostics">Performance Diagnostics</label>
+                            <input
+                                type="checkbox"
+                                id="performanceDiagnostics"
+                                name="performanceDiagnostics"
+                                {% if device_settings.performance_diagnostics in [true, 'true', 'yes', 'on', 1] %}checked{% endif %}
+                            >
+                        </div>
+
+                        <div class="form-group nowrap">
+                            <label class="form-label" for="waveshareClearBeforeDisplay">Waveshare Clear Before Display</label>
+                            {% set waveshare_clear = device_settings.get('waveshare_clear_before_display', true) %}
+                            <input
+                                type="checkbox"
+                                id="waveshareClearBeforeDisplay"
+                                name="waveshareClearBeforeDisplay"
+                                {% if waveshare_clear in [true, 'true', 'yes', 'on', 1] %}checked{% endif %}
+                            >
+                        </div>
+
+                        <div class="form-group nowrap">
+                            <label class="form-label" for="waveshareSleepAfterDisplay">Waveshare Sleep After Display</label>
+                            {% set waveshare_sleep = device_settings.get('waveshare_sleep_after_display', true) %}
+                            <input
+                                type="checkbox"
+                                id="waveshareSleepAfterDisplay"
+                                name="waveshareSleepAfterDisplay"
+                                {% if waveshare_sleep in [true, 'true', 'yes', 'on', 1] %}checked{% endif %}
+                            >
+                        </div>
+
+                        <div class="form-group nowrap">
+                            <label class="form-label" for="waveshareReinitializeBeforeDisplay">Waveshare Reinitialize Before Display</label>
+                            {% set waveshare_reinitialize = device_settings.get('waveshare_reinitialize_before_display', true) %}
+                            <input
+                                type="checkbox"
+                                id="waveshareReinitializeBeforeDisplay"
+                                name="waveshareReinitializeBeforeDisplay"
+                                {% if waveshare_reinitialize in [true, 'true', 'yes', 'on', 1] %}checked{% endif %}
+                            >
+                        </div>
+                    </div>
+                </div>
+
+                <div class="collapsible">
+                    <button type="button" class="collapsible-header" onclick="toggleCollapsible(this)">
                         Image Settings <span class="collapsible-icon">▼</span>
                     </button>
                     <div class="settings-container collapsible-content">
