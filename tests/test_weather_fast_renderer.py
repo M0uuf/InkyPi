@@ -20,9 +20,10 @@ from plugins.weather.weather import Weather
 
 
 class FakeDeviceConfig:
-    def __init__(self, resolution=(800, 480), orientation="horizontal"):
+    def __init__(self, resolution=(800, 480), orientation="horizontal", timezone_name="UTC"):
         self.resolution = resolution
         self.orientation = orientation
+        self.timezone_name = timezone_name
 
     def get_resolution(self):
         return self.resolution
@@ -30,7 +31,7 @@ class FakeDeviceConfig:
     def get_config(self, key=None, default=None):
         values = {
             "orientation": self.orientation,
-            "timezone": "UTC",
+            "timezone": self.timezone_name,
             "time_format": "24h"
         }
         if key is None:
@@ -315,6 +316,7 @@ def test_openmeteo_location_timezone_parses_offsetless_times_as_location_local()
     data_points = {point["label"]: point for point in parsed["data_points"]}
 
     assert parsed["current_date"] == "Saturday, May 09"
+    assert parsed["forecast"][0]["day"] == "Sat"
     assert parsed["hourly_forecast"][0]["time"] == "23:00"
     assert data_points["Sunrise"]["measurement"] == "06:00"
     assert data_points["Sunset"]["measurement"] == "18:00"
@@ -353,6 +355,7 @@ def test_openmeteo_configured_timezone_is_requested_and_used(monkeypatch):
 
     def fake_render_fast_image(dimensions, template_params):
         captured["current_date"] = template_params["current_date"]
+        captured["first_forecast_day"] = template_params["forecast"][0]["day"]
         return Image.new("RGB", dimensions, "white")
 
     monkeypatch.setattr(plugin, "get_open_meteo_data", fake_get_open_meteo_data)
@@ -362,12 +365,13 @@ def test_openmeteo_configured_timezone_is_requested_and_used(monkeypatch):
     settings = build_base_weather_settings(provider="OpenMeteo", latitude="0", longitude="0")
     settings["weatherTimeZone"] = "localTimeZone"
 
-    image = plugin.generate_image(settings, FakeDeviceConfig())
+    image = plugin.generate_image(settings, FakeDeviceConfig(timezone_name="Europe/Berlin"))
 
     assert image.size == (800, 480)
-    assert captured["weather_timezone"] == "UTC"
-    assert captured["air_quality_timezone"] == "UTC"
+    assert captured["weather_timezone"] == "Europe/Berlin"
+    assert captured["air_quality_timezone"] == "Europe/Berlin"
     assert captured["current_date"] == "Sunday, May 10"
+    assert captured["first_forecast_day"] == "Sat"
 
 
 def test_openmeteo_location_timezone_requests_auto(monkeypatch):
