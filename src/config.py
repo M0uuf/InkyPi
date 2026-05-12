@@ -2,6 +2,8 @@ import os
 import json
 import logging
 import shutil
+import tempfile
+import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from model import PlaylistManager, RefreshInfo
@@ -24,6 +26,7 @@ class Config:
     plugin_image_dir = os.path.join(BASE_DIR, "static", "images", "plugins")
 
     def __init__(self):
+        self._write_lock = threading.RLock()
         self.config = self.read_config()
         self.plugins_list = self.read_plugins_list()
         if self.sanitize_plugin_config():
@@ -117,9 +120,7 @@ class Config:
     def write_raw_config(self):
         """Writes the current config dictionary without syncing model objects first."""
         logger.debug(f"Writing sanitized device config to {self.config_file}")
-        with open(self.config_file, 'w') as outfile:
-            json.dump(self.config, outfile, indent=4)
-            outfile.write("\n")
+        self._write_config_data(self.config)
 
     def backup_config_before_sanitizing(self):
         """Back up the original config before writing a sanitized replacement."""
@@ -136,10 +137,52 @@ class Config:
     def write_config(self):
         """Updates the cached config from the model objects and writes to the config file."""
         logger.debug(f"Writing device config to {self.config_file}")
-        self.update_value("playlist_config", self.playlist_manager.to_dict())
-        self.update_value("refresh_info", self.refresh_info.to_dict())
-        with open(self.config_file, 'w') as outfile:
-            json.dump(self.config, outfile, indent=4)
+        with self._get_write_lock():
+            self.update_value("playlist_config", self.playlist_manager.to_dict())
+            self.update_value("refresh_info", self.refresh_info.to_dict())
+            self._write_config_data(self.config)
+
+    def _get_write_lock(self):
+        if not hasattr(self, "_write_lock"):
+            self._write_lock = threading.RLock()
+        return self._write_lock
+
+    def _write_config_data(self, config_data):
+        with self._get_write_lock():
+            self._atomic_write_json(config_data)
+
+    def _atomic_write_json(self, config_data):
+        config_dir = os.path.dirname(self.config_file)
+        temp_path = None
+        fd, temp_path = tempfile.mkstemp(
+            prefix=f".{os.path.basename(self.config_file)}.",
+            suffix=".tmp",
+            dir=config_dir
+        )
+        try:
+            with os.fdopen(fd, "w") as outfile:
+                json.dump(config_data, outfile, indent=4)
+                outfile.write("\n")
+                outfile.flush()
+                os.fsync(outfile.fileno())
+            os.replace(temp_path, self.config_file)
+            self._fsync_config_dir(config_dir)
+            temp_path = None
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def _fsync_config_dir(self, config_dir):
+        if not hasattr(os, "O_DIRECTORY"):
+            return
+        try:
+            dir_fd = os.open(config_dir, os.O_DIRECTORY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     def get_config(self, key=None, default={}):
         """Gets the value of a specific configuration key or returns the entire config if none provided."""
@@ -219,14 +262,16 @@ class Config:
 
     def update_config(self, config):
         """Updates the config with the new values provided and writes to the config file."""
-        self.config.update(config)
-        self.write_config()
+        with self._get_write_lock():
+            self.config.update(config)
+            self.write_config()
 
     def update_value(self, key, value, write=False):
         """Updates a specific key in the configuration with a new value and optionally writes it to the config file."""
-        self.config[key] = value
-        if write:
-            self.write_config()
+        with self._get_write_lock():
+            self.config[key] = value
+            if write:
+                self.write_config()
 
     def load_env_key(self, key):
         """Loads an environment variable using dotenv and returns its value."""
