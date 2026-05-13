@@ -1,6 +1,13 @@
 from flask import Blueprint, request, jsonify, current_app, render_template, send_from_directory, url_for
 from plugins.plugin_registry import get_plugin_instance
-from utils.app_utils import resolve_path, handle_request_files, parse_form
+from utils.app_utils import (
+    UploadValidationError,
+    cleanup_replaced_saved_uploads,
+    delete_saved_uploads_for_settings,
+    handle_request_files,
+    parse_form,
+    resolve_path,
+)
 from refresh_task import ManualRefresh, PlaylistRefresh, ManualUpdateBusy
 from werkzeug.security import safe_join
 from functools import lru_cache
@@ -35,6 +42,8 @@ def _delete_plugin_instance_images(device_config, plugin_instance_obj):
             plugin.cleanup(plugin_instance_obj.settings)
     except Exception as e:
         logger.warning(f"Error during plugin cleanup for {plugin_instance_obj.plugin_id}: {e}")
+
+    delete_saved_uploads_for_settings(plugin_instance_obj.settings)
 
 def _get_supported_plugin_or_response(device_config, plugin_id):
     plugin_config = device_config.get_plugin(plugin_id)
@@ -227,13 +236,17 @@ def update_plugin_instance(instance_name):
                     plugin_instance.refresh = {"scheduled": refresh_time}
 
         # Only update plugin settings if there's actual data (not just refresh settings)
+        previous_settings = dict(plugin_instance.settings or {})
         plugin_settings = form_data
         plugin_settings.update(handle_request_files(request.files, request.form))
 
         if plugin_settings:  # Only update if there are actual plugin settings
             plugin_instance.settings = plugin_settings
+            cleanup_replaced_saved_uploads(previous_settings, plugin_settings)
 
         device_config.write_config()
+    except UploadValidationError as e:
+        return jsonify({"error": str(e)}), e.status_code
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     return jsonify({"success": True, "message": f"Updated plugin instance {instance_name}."})
@@ -300,6 +313,8 @@ def update_now():
             image = plugin.generate_image(plugin_settings, device_config)
             display_manager.display_image(image, image_settings=plugin_config.get("image_settings", []))
 
+    except UploadValidationError as e:
+        return jsonify({"error": str(e)}), e.status_code
     except Exception as e:
         logger.exception(f"Error in update_now: {str(e)}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500

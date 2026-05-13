@@ -1,3 +1,4 @@
+import io
 import json
 import sys
 from pathlib import Path
@@ -100,6 +101,18 @@ def test_update_now_rejects_unsupported_plugin_id():
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Unsupported plugin 'clock'"
+
+
+def test_update_now_rejects_request_over_app_upload_limit():
+    app = create_app()
+    app.config["MAX_CONTENT_LENGTH"] = 8
+
+    response = app.test_client().post("/update_now", data={
+        "plugin_id": "weather",
+        "backgroundImageFile": (io.BytesIO(b"too large"), "large.png")
+    })
+
+    assert response.status_code == 413
 
 
 def test_update_plugin_instance_rejects_unsupported_plugin_id():

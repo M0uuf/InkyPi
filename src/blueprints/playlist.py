@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 import os
 import logging
-from utils.app_utils import resolve_path, handle_request_files, parse_form
+from utils.app_utils import UploadValidationError, resolve_path, handle_request_files, parse_form
 
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,8 @@ def add_plugin():
             return jsonify({"error": "Failed to add to playlist"}), 500
 
         device_config.write_config()
+    except UploadValidationError as e:
+        return jsonify({"error": str(e)}), e.status_code
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     return jsonify({"success": True, "message": "Scheduled refresh configured."})
