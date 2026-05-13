@@ -164,6 +164,8 @@ When an admin token is configured:
 - mutating requests require CSRF protection
 - API-style clients can send `Authorization: Bearer <token>` or `X-InkyPi-Admin-Token: <token>`
 
+If `INKYPI_SECRET_KEY` is not set, InkyPi generates a strong runtime session secret on startup. That keeps session signing safe, but browser logins are invalidated after each restart. Set a persistent high-entropy `INKYPI_SECRET_KEY` if you want login sessions to survive restarts. For HTTPS or reverse-proxy deployments, also consider enabling Flask's `SESSION_COOKIE_SECURE` setting in your deployment wrapper.
+
 If no admin token is configured, authentication and CSRF checks are disabled for first-run appliance setup. In that mode the Web UI must remain on a trusted LAN.
 
 ## Raspberry Pi Zero 2 W performance

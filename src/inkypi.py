@@ -8,7 +8,7 @@ from pi_heif import register_heif_opener
 logging.config.fileConfig(os.path.join(os.path.dirname(__file__), 'config', 'logging.conf'))
 
 import os
-import random
+import secrets
 import time
 import sys
 import json
@@ -51,7 +51,9 @@ else:
     logger.info("Starting InkyPi in PRODUCTION mode on port 80")
 logging.getLogger('waitress.queue').setLevel(logging.ERROR)
 app = Flask(__name__)
-app.secret_key = os.getenv("INKYPI_SECRET_KEY") or str(random.randint(100000,999999))
+app.secret_key = os.getenv("INKYPI_SECRET_KEY") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 template_dirs = [
    os.path.join(os.path.dirname(__file__), "templates"),    # Default template folder
    os.path.join(os.path.dirname(__file__), "plugins"),      # Plugin templates

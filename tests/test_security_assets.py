@@ -38,4 +38,14 @@ def test_readme_documents_default_trusted_lan_warning_and_admin_token():
     assert "Web UI security" in readme
     assert "trusted local network only" in readme
     assert "INKYPI_ADMIN_TOKEN" in readme
+    assert "INKYPI_SECRET_KEY" in readme
     assert "Authorization: Bearer" in readme
+
+
+def test_inkypi_uses_strong_session_secret_fallback_and_cookie_flags():
+    inkypi = read_repo_file("src/inkypi.py")
+
+    assert "secrets.token_hex(32)" in inkypi
+    assert "random.randint" not in inkypi
+    assert 'SESSION_COOKIE_HTTPONLY"] = True' in inkypi
+    assert 'SESSION_COOKIE_SAMESITE"] = "Lax"' in inkypi
