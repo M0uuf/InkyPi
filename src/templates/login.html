@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InkyPi Login</title>
+    <script>
+        (function() {
+            const theme = localStorage.getItem('inkypi-theme') ||
+                         (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            if (theme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/main.css') }}">
+    <script src="{{ url_for('static', filename='scripts/dark_mode.js') }}"></script>
+</head>
+<body>
+    <div class="frame">
+        <div class="app-header">
+            <div class="header-content">
+                <div class="title-container">
+                    <img src="{{ url_for('static', filename='icons/settings.png') }}" alt="settings icon" class="app-icon">
+                    <h1 class="app-title">InkyPi Login</h1>
+                </div>
+            </div>
+        </div>
+        <div class="separator"></div>
+
+        <form class="settings-form" method="post">
+            <div id="settings-container">
+                <div class="form-group">
+                    <label for="admin_token" class="form-label">Admin Token:</label>
+                    <input
+                        type="password"
+                        id="admin_token"
+                        name="admin_token"
+                        class="form-input"
+                        autocomplete="current-password"
+                        required
+                        autofocus
+                    >
+                </div>
+                {% if error %}
+                <p class="form-help" style="color: #E53935;">{{ error }}</p>
+                {% endif %}
+            </div>
+            <div class="buttons-container">
+                <button type="submit" class="action-button">Login</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

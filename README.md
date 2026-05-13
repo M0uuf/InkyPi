@@ -140,6 +140,32 @@ Important display/performance settings include:
 
 The safe defaults preserve conservative E-Ink behavior. Disabling clear or sleep may reduce update time on some panels, but can increase ghosting, visual artifacts, or power use.
 
+## Web UI security
+
+By default, the Web UI is intended for a trusted local network only. Do not expose it directly to the internet or an untrusted Wi-Fi network.
+
+For optional protection, set an admin token in either the environment or device config:
+
+```bash
+export INKYPI_ADMIN_TOKEN="choose-a-long-random-token"
+```
+
+or:
+
+```json
+{
+  "web_admin_token": "choose-a-long-random-token"
+}
+```
+
+When an admin token is configured:
+
+- browser users must log in at `/login`
+- mutating requests require CSRF protection
+- API-style clients can send `Authorization: Bearer <token>` or `X-InkyPi-Admin-Token: <token>`
+
+If no admin token is configured, authentication and CSRF checks are disabled for first-run appliance setup. In that mode the Web UI must remain on a trusted LAN.
+
 ## Raspberry Pi Zero 2 W performance
 
 Raspberry Pi Zero 2 W is supported, but it should be treated as a low-resource target. It can run the dashboard, but it will not behave like a Raspberry Pi 4.
