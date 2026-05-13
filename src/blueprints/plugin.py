@@ -232,6 +232,8 @@ def update_plugin_instance(instance_name):
         if not plugin_instance:
             return jsonify({"error": f"Plugin instance: {instance_name} does not exist"}), 500
 
+        previous_refresh = dict(plugin_instance.refresh or {})
+
         # Handle refresh settings if provided
         refresh_settings_json = form_data.pop("refresh_settings", None)
         if refresh_settings_json:
@@ -253,17 +255,30 @@ def update_plugin_instance(instance_name):
         # Only update plugin settings if there's actual data (not just refresh settings)
         previous_settings = dict(plugin_instance.settings or {})
         plugin_settings = form_data
-        plugin_settings.update(handle_request_files(request.files, request.form))
+        try:
+            uploaded_settings = handle_request_files(request.files, request.form)
+        except Exception:
+            plugin_instance.refresh = previous_refresh
+            raise
+        plugin_settings.update(uploaded_settings)
 
         if plugin_settings:  # Only update if there are actual plugin settings
             plugin_instance.settings = plugin_settings
+
+        try:
+            device_config.write_config()
+        except Exception:
+            plugin_instance.settings = previous_settings
+            plugin_instance.refresh = previous_refresh
+            delete_saved_uploads_for_settings(uploaded_settings)
+            raise
+
+        if plugin_settings:  # Only cleanup after the new config is persisted
             cleanup_replaced_saved_uploads(
                 previous_settings,
                 plugin_settings,
                 retained_paths=collect_saved_upload_paths_from_playlist_manager(playlist_manager)
             )
-
-        device_config.write_config()
     except UploadValidationError as e:
         return jsonify({"error": str(e)}), e.status_code
     except Exception as e:
