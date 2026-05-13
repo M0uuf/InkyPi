@@ -4,7 +4,14 @@ import json
 from datetime import datetime, timedelta
 import os
 import logging
-from utils.app_utils import resolve_path, handle_request_files, parse_form
+from utils.app_utils import (
+    UploadValidationError,
+    collect_saved_upload_paths_from_playlist_manager,
+    delete_saved_uploads_for_settings,
+    resolve_path,
+    handle_request_files,
+    parse_form,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +35,9 @@ def add_plugin():
         instance_name = refresh_settings.get('instance_name')
         if not playlist:
             return jsonify({"error": "Playlist name is required"}), 400
+        target_playlist = playlist_manager.get_playlist(playlist)
+        if not target_playlist:
+            return jsonify({"error": f"Playlist '{playlist}' does not exist"}), 400
         if not instance_name or not instance_name.strip():
             return jsonify({"error": "Instance name is required"}), 400
         if not all(char.isalpha() or char.isspace() or char.isnumeric() for char in instance_name):
@@ -54,18 +64,31 @@ def add_plugin():
                 return jsonify({"error": "Refresh time is required"}), 400
             refresh_config = {"scheduled": refresh_time}
 
-        plugin_settings.update(handle_request_files(request.files))
-        plugin_dict = {
-            "plugin_id": plugin_id,
-            "refresh": refresh_config,
-            "plugin_settings": plugin_settings,
-            "name": instance_name
-        }
-        result = playlist_manager.add_plugin_to_playlist(playlist, plugin_dict)
-        if not result:
-            return jsonify({"error": "Failed to add to playlist"}), 500
+        uploaded_settings = {}
+        plugin_added = False
+        try:
+            uploaded_settings = handle_request_files(request.files)
+            plugin_settings.update(uploaded_settings)
+            plugin_dict = {
+                "plugin_id": plugin_id,
+                "refresh": refresh_config,
+                "plugin_settings": plugin_settings,
+                "name": instance_name
+            }
+            result = playlist_manager.add_plugin_to_playlist(playlist, plugin_dict)
+            if not result:
+                delete_saved_uploads_for_settings(uploaded_settings)
+                return jsonify({"error": "Failed to add to playlist"}), 500
 
-        device_config.write_config()
+            plugin_added = True
+            device_config.write_config()
+        except Exception:
+            if plugin_added:
+                target_playlist.delete_plugin(plugin_id, instance_name)
+            delete_saved_uploads_for_settings(uploaded_settings)
+            raise
+    except UploadValidationError as e:
+        return jsonify({"error": str(e)}), e.status_code
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     return jsonify({"success": True, "message": "Scheduled refresh configured."})
@@ -154,13 +177,28 @@ def delete_playlist(playlist_name):
     if not playlist:
         return jsonify({"error": f"Playlist '{playlist_name}' does not exist"}), 400
 
-    # Delete all images associated with plugin instances in this playlist
-    from blueprints.plugin import _delete_plugin_instance_images
-    for plugin_instance in playlist.plugins:
-        _delete_plugin_instance_images(device_config, plugin_instance)
+    plugins_to_delete = list(playlist.plugins)
+    retained_saved_upload_paths = collect_saved_upload_paths_from_playlist_manager(
+        playlist_manager,
+        exclude_plugin_instances=plugins_to_delete
+    )
+    original_playlists = list(playlist_manager.playlists)
 
     playlist_manager.delete_playlist(playlist_name)
-    device_config.write_config()
+    try:
+        device_config.write_config()
+    except Exception:
+        playlist_manager.playlists = original_playlists
+        raise
+
+    # Delete all images associated with plugin instances only after config no longer references them.
+    from blueprints.plugin import _delete_plugin_instance_images
+    for plugin_instance in plugins_to_delete:
+        _delete_plugin_instance_images(
+            device_config,
+            plugin_instance,
+            retained_saved_upload_paths=retained_saved_upload_paths
+        )
 
     return jsonify({"success": True, "message": f"Deleted playlist '{playlist_name}'!"})
 

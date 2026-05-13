@@ -15,8 +15,9 @@ import json
 import logging
 import threading
 import argparse
-from utils.app_utils import generate_startup_image
-from flask import Flask, request, send_from_directory
+from utils.app_utils import MAX_UPLOAD_BYTES, generate_startup_image
+from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.serving import is_running_from_reloader
 from config import Config
 from display.display_manager import DisplayManager
@@ -73,8 +74,13 @@ app.config['DISPLAY_MANAGER'] = display_manager
 app.config['REFRESH_TASK'] = refresh_task
 
 # Set additional parameters
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_BYTES
 app.config['MAX_FORM_PARTS'] = 10_000
 init_security(app)
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(error):
+    return jsonify({"error": f"Uploaded file exceeds the {MAX_UPLOAD_BYTES} byte limit"}), 413
 
 # Register Blueprints
 app.register_blueprint(main_bp)

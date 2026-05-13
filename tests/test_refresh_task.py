@@ -11,11 +11,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import refresh_task as refresh_task_module
 from model import Playlist, RefreshInfo
-from refresh_task import ManualUpdateBusy, PlaylistRefresh, RefreshTask
+from refresh_task import ManualRefresh, ManualUpdateBusy, PlaylistRefresh, RefreshTask
 
 
 class FakePlugin:
     config = {"image_settings": []}
+
+    def generate_image(self, settings, device_config):
+        return Image.new("RGB", (16, 16), "white")
+
+
+class FailingPlugin:
+    config = {"image_settings": []}
+
+    def __init__(self, exception):
+        self.exception = exception
+
+    def generate_image(self, settings, device_config):
+        raise self.exception
 
 
 class FakePlaylistManager:
@@ -164,6 +177,71 @@ def test_enqueue_manual_update_reports_errors(monkeypatch):
             pytest.fail("manual update job did not report an error")
 
         assert status["error"] == "refresh failed"
+    finally:
+        task.stop()
+
+
+def test_queued_manual_refresh_cleans_up_saved_upload_after_completion(monkeypatch, tmp_path):
+    monkeypatch.setattr(refresh_task_module, "get_plugin_instance", lambda plugin_config: FakePlugin())
+    upload_path = tmp_path / "manual.png"
+    upload_path.write_bytes(b"manual")
+    monkeypatch.setattr(
+        refresh_task_module,
+        "delete_saved_uploads_for_settings",
+        lambda settings: upload_path.unlink() if upload_path.exists() else None
+    )
+
+    task = RefreshTask(FakeDeviceConfig(), FakeDisplayManager())
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(ManualRefresh("weather", {"backgroundImageFile": str(upload_path)}))
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "done":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("manual update job did not complete")
+
+        assert not upload_path.exists()
+    finally:
+        task.stop()
+
+
+def test_queued_manual_refresh_cleans_up_saved_upload_after_failure(monkeypatch, tmp_path):
+    expected_error = RuntimeError("refresh failed")
+    monkeypatch.setattr(
+        refresh_task_module,
+        "get_plugin_instance",
+        lambda plugin_config: FailingPlugin(expected_error)
+    )
+    upload_path = tmp_path / "manual.png"
+    upload_path.write_bytes(b"manual")
+    monkeypatch.setattr(
+        refresh_task_module,
+        "delete_saved_uploads_for_settings",
+        lambda settings: upload_path.unlink() if upload_path.exists() else None
+    )
+
+    task = RefreshTask(FakeDeviceConfig(), FakeDisplayManager())
+    task.start()
+
+    try:
+        job = task.enqueue_manual_update(ManualRefresh("weather", {"backgroundImageFile": str(upload_path)}))
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = task.get_manual_update_status(job["id"])
+            if status["state"] == "error":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("manual update job did not report an error")
+
+        assert not upload_path.exists()
     finally:
         task.stop()
 
