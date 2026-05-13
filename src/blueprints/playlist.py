@@ -6,6 +6,7 @@ import os
 import logging
 from utils.app_utils import (
     UploadValidationError,
+    collect_saved_upload_paths_from_playlist_manager,
     delete_saved_uploads_for_settings,
     resolve_path,
     handle_request_files,
@@ -176,13 +177,28 @@ def delete_playlist(playlist_name):
     if not playlist:
         return jsonify({"error": f"Playlist '{playlist_name}' does not exist"}), 400
 
-    # Delete all images associated with plugin instances in this playlist
-    from blueprints.plugin import _delete_plugin_instance_images
-    for plugin_instance in playlist.plugins:
-        _delete_plugin_instance_images(device_config, plugin_instance)
+    plugins_to_delete = list(playlist.plugins)
+    retained_saved_upload_paths = collect_saved_upload_paths_from_playlist_manager(
+        playlist_manager,
+        exclude_plugin_instances=plugins_to_delete
+    )
+    original_playlists = list(playlist_manager.playlists)
 
     playlist_manager.delete_playlist(playlist_name)
-    device_config.write_config()
+    try:
+        device_config.write_config()
+    except Exception:
+        playlist_manager.playlists = original_playlists
+        raise
+
+    # Delete all images associated with plugin instances only after config no longer references them.
+    from blueprints.plugin import _delete_plugin_instance_images
+    for plugin_instance in plugins_to_delete:
+        _delete_plugin_instance_images(
+            device_config,
+            plugin_instance,
+            retained_saved_upload_paths=retained_saved_upload_paths
+        )
 
     return jsonify({"success": True, "message": f"Deleted playlist '{playlist_name}'!"})
 

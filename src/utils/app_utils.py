@@ -282,11 +282,19 @@ def cleanup_replaced_saved_uploads(previous_settings, current_settings, retained
     return deleted
 
 
-def collect_saved_upload_paths_from_playlist_manager(playlist_manager, exclude_plugin_instance=None):
+def collect_saved_upload_paths_from_playlist_manager(
+    playlist_manager,
+    exclude_plugin_instance=None,
+    exclude_plugin_instances=None
+):
+    excluded_instances = {id(instance) for instance in (exclude_plugin_instances or [])}
+    if exclude_plugin_instance is not None:
+        excluded_instances.add(id(exclude_plugin_instance))
+
     retained_paths = set()
     for playlist in getattr(playlist_manager, "playlists", []):
         for plugin_instance in getattr(playlist, "plugins", []):
-            if plugin_instance is exclude_plugin_instance:
+            if id(plugin_instance) in excluded_instances:
                 continue
             retained_paths.update(iter_saved_upload_paths(getattr(plugin_instance, "settings", {})))
     return retained_paths

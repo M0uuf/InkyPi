@@ -89,24 +89,33 @@ class MissingPlaylistConfig:
 
 
 class WritablePlaylistManager:
-    def __init__(self):
-        self.playlist = Playlist("Default", "00:00", "24:00", [])
+    def __init__(self, plugins=None):
+        self.playlist = Playlist("Default", "00:00", "24:00", plugins or [])
+        self.playlists = [self.playlist]
 
     def get_playlist(self, playlist_name):
-        if playlist_name == self.playlist.name:
+        if self.playlist and playlist_name == self.playlist.name:
             return self.playlist
         return None
 
     def find_plugin(self, plugin_id, instance_name):
+        if not self.playlist:
+            return None
         return self.playlist.find_plugin(plugin_id, instance_name)
 
     def add_plugin_to_playlist(self, playlist_name, plugin_dict):
         return self.playlist.add_plugin(plugin_dict)
 
+    def delete_playlist(self, playlist_name):
+        self.playlists = [playlist for playlist in self.playlists if playlist.name != playlist_name]
+        if self.playlist.name == playlist_name:
+            self.playlist = None
+
 
 class FailingWriteConfig:
-    def __init__(self):
-        self.playlist_manager = WritablePlaylistManager()
+    def __init__(self, plugins=None):
+        self.playlist_manager = WritablePlaylistManager(plugins=plugins)
+        self.plugin_image_dir = "/tmp"
 
     def get_plugin(self, plugin_id):
         return {"id": plugin_id}
@@ -116,6 +125,16 @@ class FailingWriteConfig:
 
     def write_config(self):
         raise RuntimeError("write failed")
+
+
+class SuccessfulWriteConfig(FailingWriteConfig):
+    def write_config(self):
+        return None
+
+
+class PluginWithCleanup:
+    def cleanup(self, settings):
+        return None
 
 
 def create_app():
@@ -216,6 +235,68 @@ def test_add_plugin_cleans_upload_and_rolls_back_when_config_write_fails(monkeyp
     assert response.status_code == 500
     assert not upload_path.exists()
     assert config.playlist_manager.playlist.plugins == []
+
+
+def test_delete_plugin_instance_write_failure_keeps_saved_upload(monkeypatch, tmp_path):
+    upload_dir = tmp_path / "src" / "static" / "images" / "saved"
+    upload_dir.mkdir(parents=True)
+    upload_path = upload_dir / "existing.png"
+    upload_path.write_bytes(b"existing")
+    config = FailingWriteConfig(plugins=[{
+        "plugin_id": "weather",
+        "name": "Weather",
+        "plugin_settings": {"backgroundImageFile": str(upload_path)},
+        "refresh": {"interval": 3600}
+    }])
+
+    from utils import app_utils
+    monkeypatch.setattr(app_utils, "resolve_path", lambda path: str(tmp_path / "src" / path))
+    monkeypatch.setattr(plugin_module, "get_plugin_instance", lambda plugin_config: PluginWithCleanup())
+
+    app = Flask(__name__)
+    app.config["DEVICE_CONFIG"] = config
+    app.register_blueprint(plugin_bp)
+
+    response = app.test_client().post("/delete_plugin_instance", json={
+        "playlist_name": "Default",
+        "plugin_id": "weather",
+        "plugin_instance": "Weather"
+    })
+
+    assert response.status_code == 500
+    assert upload_path.exists()
+    assert config.playlist_manager.playlist.find_plugin("weather", "Weather") is not None
+
+
+def test_delete_plugin_instance_success_cleans_saved_upload_after_write(monkeypatch, tmp_path):
+    upload_dir = tmp_path / "src" / "static" / "images" / "saved"
+    upload_dir.mkdir(parents=True)
+    upload_path = upload_dir / "existing.png"
+    upload_path.write_bytes(b"existing")
+    config = SuccessfulWriteConfig(plugins=[{
+        "plugin_id": "weather",
+        "name": "Weather",
+        "plugin_settings": {"backgroundImageFile": str(upload_path)},
+        "refresh": {"interval": 3600}
+    }])
+
+    from utils import app_utils
+    monkeypatch.setattr(app_utils, "resolve_path", lambda path: str(tmp_path / "src" / path))
+    monkeypatch.setattr(plugin_module, "get_plugin_instance", lambda plugin_config: PluginWithCleanup())
+
+    app = Flask(__name__)
+    app.config["DEVICE_CONFIG"] = config
+    app.register_blueprint(plugin_bp)
+
+    response = app.test_client().post("/delete_plugin_instance", json={
+        "playlist_name": "Default",
+        "plugin_id": "weather",
+        "plugin_instance": "Weather"
+    })
+
+    assert response.status_code == 200
+    assert not upload_path.exists()
+    assert config.playlist_manager.playlist.find_plugin("weather", "Weather") is None
 
 
 def test_update_now_rejects_unsupported_plugin_id():

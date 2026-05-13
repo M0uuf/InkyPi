@@ -192,19 +192,24 @@ def delete_plugin_instance():
             exclude_plugin_instance=plugin_instance_obj
         )
 
-        # Delete associated images before removing from playlist
-        _delete_plugin_instance_images(
-            device_config,
-            plugin_instance_obj,
-            retained_saved_upload_paths=retained_saved_upload_paths
-        )
-
+        original_plugins = list(playlist.plugins)
         result = playlist.delete_plugin(plugin_id, plugin_instance)
         if not result:
             return jsonify({"success": False, "message": "Plugin instance not found"}), 400
 
         # save changes to device config file
-        device_config.write_config()
+        try:
+            device_config.write_config()
+        except Exception:
+            playlist.plugins = original_plugins
+            raise
+
+        # Delete associated files only after config no longer references them.
+        _delete_plugin_instance_images(
+            device_config,
+            plugin_instance_obj,
+            retained_saved_upload_paths=retained_saved_upload_paths
+        )
 
     except Exception as e:
         logger.exception("EXCEPTION CAUGHT: " + str(e))
