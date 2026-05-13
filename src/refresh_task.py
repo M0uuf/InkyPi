@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from plugins.plugin_registry import get_plugin_instance
 from utils.image_utils import compute_image_hash
 from utils.performance import PerformanceDiagnostics, is_performance_diagnostics_enabled
+from utils.app_utils import delete_saved_uploads_for_settings
 from model import RefreshInfo
 from PIL import Image
 
@@ -94,6 +95,7 @@ class RefreshTask:
             self.running = False
             while self.manual_update_queue:
                 job = self.manual_update_queue.popleft()
+                self._cleanup_manual_update_job(job)
                 job.mark_error(RuntimeError("Refresh task stopped before manual update completed"))
             self.condition.notify_all()  # Wake the thread to let it exit
         if self.thread:
@@ -214,14 +216,22 @@ class RefreshTask:
                     )
 
                     if job:
+                        self._cleanup_manual_update_job(job)
                         with self.condition:
                             job.mark_done()
 
             except Exception as e:
                 logger.exception('Exception during refresh')
                 if job:
+                    self._cleanup_manual_update_job(job)
                     with self.condition:
                         job.mark_error(e)  # Capture exception for this manual caller
+
+    def _cleanup_manual_update_job(self, job):
+        try:
+            job.refresh_action.cleanup()
+        except Exception:
+            logger.exception("Exception during manual refresh cleanup")
 
     def _enqueue_manual_update_job(self, refresh_action):
         """Queues a manual refresh and returns the job without waiting for completion."""
@@ -389,6 +399,10 @@ class RefreshAction:
         """Return the plugin ID associated with this refresh."""
         raise NotImplementedError("Subclasses must implement the get_plugin_id method.")
 
+    def cleanup(self):
+        """Clean up resources owned by this refresh action."""
+        return None
+
 class ManualRefresh(RefreshAction):
     """Performs a manual refresh based on a plugin's ID and its associated settings.
     
@@ -412,6 +426,9 @@ class ManualRefresh(RefreshAction):
     def get_plugin_id(self):
         """Return the plugin ID associated with this refresh."""
         return self.plugin_id
+
+    def cleanup(self):
+        delete_saved_uploads_for_settings(self.plugin_settings)
 
 class PlaylistRefresh(RefreshAction):
     """Performs a refresh using a plugin instance within a playlist context.

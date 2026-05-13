@@ -251,9 +251,12 @@ def iter_saved_upload_paths(value):
         yield value
 
 
-def delete_saved_uploads_for_settings(settings):
+def delete_saved_uploads_for_settings(settings, retained_paths=None):
+    retained_paths = set(retained_paths or [])
     deleted = []
     for file_path in set(iter_saved_upload_paths(settings)):
+        if file_path in retained_paths:
+            continue
         try:
             if os.path.isfile(file_path):
                 os.remove(file_path)
@@ -264,8 +267,9 @@ def delete_saved_uploads_for_settings(settings):
     return deleted
 
 
-def cleanup_replaced_saved_uploads(previous_settings, current_settings):
+def cleanup_replaced_saved_uploads(previous_settings, current_settings, retained_paths=None):
     current_paths = set(iter_saved_upload_paths(current_settings))
+    current_paths.update(retained_paths or [])
     deleted = []
     for file_path in set(iter_saved_upload_paths(previous_settings)) - current_paths:
         try:
@@ -278,33 +282,51 @@ def cleanup_replaced_saved_uploads(previous_settings, current_settings):
     return deleted
 
 
+def collect_saved_upload_paths_from_playlist_manager(playlist_manager, exclude_plugin_instance=None):
+    retained_paths = set()
+    for playlist in getattr(playlist_manager, "playlists", []):
+        for plugin_instance in getattr(playlist, "plugins", []):
+            if plugin_instance is exclude_plugin_instance:
+                continue
+            retained_paths.update(iter_saved_upload_paths(getattr(plugin_instance, "settings", {})))
+    return retained_paths
+
+
 def handle_request_files(request_files, form_data={}):
     file_location_map = {}
+    saved_paths = []
     # handle existing file locations being provided as part of the form data
     for key in set(request_files.keys()):
         is_list = key.endswith('[]')
         if key in form_data:
             file_location_map[key] = form_data.getlist(key) if is_list else form_data.get(key)
     # add new files in the request
-    for key, file in request_files.items(multi=True):
-        is_list = key.endswith('[]')
-        file_name = file.filename
-        if not file_name:
-            continue
+    try:
+        for key, file in request_files.items(multi=True):
+            is_list = key.endswith('[]')
+            file_name = file.filename
+            if not file_name:
+                continue
 
-        extension = _get_upload_extension(file_name)
-        _validate_upload_size(file)
-        file_path = _build_unique_upload_path(extension)
-        try:
-            _save_upload(file, extension, file_path)
-        except Exception:
+            extension = _get_upload_extension(file_name)
+            _validate_upload_size(file)
+            file_path = _build_unique_upload_path(extension)
+            try:
+                _save_upload(file, extension, file_path)
+                saved_paths.append(file_path)
+            except Exception:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                raise
+
+            if is_list:
+                file_location_map.setdefault(key, [])
+                file_location_map[key].append(file_path)
+            else:
+                file_location_map[key] = file_path
+    except Exception:
+        for file_path in saved_paths:
             if os.path.exists(file_path):
                 os.remove(file_path)
-            raise
-
-        if is_list:
-            file_location_map.setdefault(key, [])
-            file_location_map[key].append(file_path)
-        else:
-            file_location_map[key] = file_path
+        raise
     return file_location_map

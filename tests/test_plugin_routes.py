@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -58,6 +59,17 @@ class AsyncRefreshTask:
         return self.jobs.get(job_id)
 
 
+class DirectRefreshTask:
+    running = False
+
+
+class DirectPlugin:
+    config = {"image_settings": []}
+
+    def generate_image(self, settings, device_config):
+        return Image.new("RGB", (16, 16), "white")
+
+
 def create_app():
     app = Flask(__name__)
     app.config["DEVICE_CONFIG"] = UnsupportedPluginConfig()
@@ -101,6 +113,47 @@ def test_update_now_rejects_unsupported_plugin_id():
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Unsupported plugin 'clock'"
+
+
+def test_update_now_rejects_unsupported_plugin_before_saving_upload(monkeypatch):
+    def fail_if_called(request_files):
+        raise AssertionError("uploads should not be saved before plugin validation")
+
+    monkeypatch.setattr(plugin_module, "handle_request_files", fail_if_called)
+    client = create_app().test_client()
+
+    response = client.post("/update_now", data={
+        "plugin_id": "clock",
+        "backgroundImageFile": (io.BytesIO(b"image"), "image.png")
+    })
+
+    assert response.status_code == 404
+    assert response.get_json()["error"] == "Unsupported plugin 'clock'"
+
+
+def test_update_now_direct_refresh_cleans_up_manual_upload(monkeypatch, tmp_path):
+    upload_dir = tmp_path / "src" / "static" / "images" / "saved"
+    upload_dir.mkdir(parents=True)
+    upload_path = upload_dir / "manual.png"
+    upload_path.write_bytes(b"manual")
+
+    app = Flask(__name__)
+    app.config["DEVICE_CONFIG"] = SupportedPluginConfig()
+    app.config["REFRESH_TASK"] = DirectRefreshTask()
+    app.config["DISPLAY_MANAGER"] = MagicMock()
+    app.register_blueprint(plugin_bp)
+
+    monkeypatch.setattr(plugin_module, "get_plugin_instance", lambda plugin_config: DirectPlugin())
+    monkeypatch.setattr(plugin_module, "handle_request_files", lambda request_files: {
+        "backgroundImageFile": str(upload_path)
+    })
+    from utils import app_utils
+    monkeypatch.setattr(app_utils, "resolve_path", lambda path: str(tmp_path / "src" / path))
+
+    response = app.test_client().post("/update_now", data={"plugin_id": "weather"})
+
+    assert response.status_code == 200
+    assert not upload_path.exists()
 
 
 def test_update_now_rejects_request_over_app_upload_limit():

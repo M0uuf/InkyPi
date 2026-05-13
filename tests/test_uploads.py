@@ -10,6 +10,7 @@ from utils import app_utils
 from utils.app_utils import (
     MAX_UPLOAD_BYTES,
     UploadValidationError,
+    collect_saved_upload_paths_from_playlist_manager,
     cleanup_replaced_saved_uploads,
     delete_saved_uploads_for_settings,
     handle_request_files,
@@ -76,6 +77,19 @@ def test_handle_request_files_rejects_disallowed_extension(monkeypatch, tmp_path
     assert not upload_dir.exists()
 
 
+def test_handle_request_files_cleans_up_saved_files_when_later_upload_fails(monkeypatch, tmp_path):
+    upload_dir = patch_upload_dir(monkeypatch, tmp_path)
+    request_files = DummyRequestFiles([
+        ("backgroundImageFile[]", DummyUpload("valid.png", b"valid")),
+        ("backgroundImageFile[]", DummyUpload("payload.exe", b"bad")),
+    ])
+
+    with pytest.raises(UploadValidationError, match="Unsupported file extension"):
+        handle_request_files(request_files)
+
+    assert list(upload_dir.glob("*")) == []
+
+
 def test_handle_request_files_rejects_oversized_upload(monkeypatch, tmp_path):
     upload_dir = patch_upload_dir(monkeypatch, tmp_path)
     request_files = DummyRequestFiles([
@@ -114,6 +128,22 @@ def test_cleanup_replaced_saved_uploads_removes_only_unreferenced_saved_files(mo
     assert outside_file.exists()
 
 
+def test_cleanup_replaced_saved_uploads_keeps_paths_retained_elsewhere(monkeypatch, tmp_path):
+    upload_dir = patch_upload_dir(monkeypatch, tmp_path)
+    upload_dir.mkdir(parents=True)
+    shared_file = upload_dir / "shared.png"
+    shared_file.write_bytes(b"shared")
+
+    deleted = cleanup_replaced_saved_uploads(
+        {"backgroundImageFile": str(shared_file)},
+        {},
+        retained_paths={str(shared_file)}
+    )
+
+    assert deleted == []
+    assert shared_file.exists()
+
+
 def test_delete_saved_uploads_for_settings_removes_nested_saved_files(monkeypatch, tmp_path):
     upload_dir = patch_upload_dir(monkeypatch, tmp_path)
     upload_dir.mkdir(parents=True)
@@ -130,3 +160,46 @@ def test_delete_saved_uploads_for_settings_removes_nested_saved_files(monkeypatc
     assert sorted(deleted) == sorted([str(first_file), str(second_file)])
     assert not first_file.exists()
     assert not second_file.exists()
+
+
+def test_delete_saved_uploads_for_settings_keeps_retained_path(monkeypatch, tmp_path):
+    upload_dir = patch_upload_dir(monkeypatch, tmp_path)
+    upload_dir.mkdir(parents=True)
+    shared_file = upload_dir / "shared.png"
+    shared_file.write_bytes(b"shared")
+
+    deleted = delete_saved_uploads_for_settings(
+        {"backgroundImageFile": str(shared_file)},
+        retained_paths={str(shared_file)}
+    )
+
+    assert deleted == []
+    assert shared_file.exists()
+
+
+def test_collect_saved_upload_paths_from_playlist_manager_excludes_instance(monkeypatch, tmp_path):
+    upload_dir = patch_upload_dir(monkeypatch, tmp_path)
+    own_file = upload_dir / "own.png"
+    other_file = upload_dir / "other.png"
+
+    class PluginInstance:
+        def __init__(self, settings):
+            self.settings = settings
+
+    class Playlist:
+        def __init__(self, plugins):
+            self.plugins = plugins
+
+    class PlaylistManager:
+        def __init__(self, playlists):
+            self.playlists = playlists
+
+    own_instance = PluginInstance({"backgroundImageFile": str(own_file)})
+    other_instance = PluginInstance({"backgroundImageFile": str(other_file)})
+
+    retained = collect_saved_upload_paths_from_playlist_manager(
+        PlaylistManager([Playlist([own_instance, other_instance])]),
+        exclude_plugin_instance=own_instance
+    )
+
+    assert retained == {str(other_file)}

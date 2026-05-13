@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app, render_template, sen
 from plugins.plugin_registry import get_plugin_instance
 from utils.app_utils import (
     UploadValidationError,
+    collect_saved_upload_paths_from_playlist_manager,
     cleanup_replaced_saved_uploads,
     delete_saved_uploads_for_settings,
     handle_request_files,
@@ -23,7 +24,7 @@ PLUGIN_ASSET_CACHE_SECONDS = 30 * 24 * 60 * 60
 def _plugins_dir():
     return os.path.abspath(resolve_path("plugins"))
 
-def _delete_plugin_instance_images(device_config, plugin_instance_obj):
+def _delete_plugin_instance_images(device_config, plugin_instance_obj, retained_saved_upload_paths=None):
     """Delete all images associated with a plugin instance."""
     # Delete the plugin instance's generated image
     plugin_image_path = os.path.join(device_config.plugin_image_dir, plugin_instance_obj.get_image_path())
@@ -43,7 +44,10 @@ def _delete_plugin_instance_images(device_config, plugin_instance_obj):
     except Exception as e:
         logger.warning(f"Error during plugin cleanup for {plugin_instance_obj.plugin_id}: {e}")
 
-    delete_saved_uploads_for_settings(plugin_instance_obj.settings)
+    delete_saved_uploads_for_settings(
+        plugin_instance_obj.settings,
+        retained_paths=retained_saved_upload_paths
+    )
 
 def _get_supported_plugin_or_response(device_config, plugin_id):
     plugin_config = device_config.get_plugin(plugin_id)
@@ -55,6 +59,7 @@ def _accepted_refresh_job_response(refresh_task, refresh_action):
     try:
         job = refresh_task.enqueue_manual_update(refresh_action)
     except ManualUpdateBusy as e:
+        refresh_action.cleanup()
         job = e.active_job
         job["status_url"] = url_for("plugin.refresh_job_status", job_id=job["id"])
         return jsonify({
@@ -64,6 +69,7 @@ def _accepted_refresh_job_response(refresh_task, refresh_action):
         }), 409
 
     if not job:
+        refresh_action.cleanup()
         return jsonify({"error": "Background refresh task is not running"}), 503
 
     job["status_url"] = url_for("plugin.refresh_job_status", job_id=job["id"])
@@ -181,8 +187,17 @@ def delete_plugin_instance():
         if not plugin_instance_obj:
             return jsonify({"success": False, "message": "Plugin instance not found"}), 400
 
+        retained_saved_upload_paths = collect_saved_upload_paths_from_playlist_manager(
+            playlist_manager,
+            exclude_plugin_instance=plugin_instance_obj
+        )
+
         # Delete associated images before removing from playlist
-        _delete_plugin_instance_images(device_config, plugin_instance_obj)
+        _delete_plugin_instance_images(
+            device_config,
+            plugin_instance_obj,
+            retained_saved_upload_paths=retained_saved_upload_paths
+        )
 
         result = playlist.delete_plugin(plugin_id, plugin_instance)
         if not result:
@@ -242,7 +257,11 @@ def update_plugin_instance(instance_name):
 
         if plugin_settings:  # Only update if there are actual plugin settings
             plugin_instance.settings = plugin_settings
-            cleanup_replaced_saved_uploads(previous_settings, plugin_settings)
+            cleanup_replaced_saved_uploads(
+                previous_settings,
+                plugin_settings,
+                retained_paths=collect_saved_upload_paths_from_playlist_manager(playlist_manager)
+            )
 
         device_config.write_config()
     except UploadValidationError as e:
@@ -294,11 +313,12 @@ def update_now():
 
     try:
         plugin_settings = parse_form(request.form)
-        plugin_settings.update(handle_request_files(request.files))
         plugin_id = plugin_settings.pop("plugin_id")
         plugin_config, error_response, status_code = _get_supported_plugin_or_response(device_config, plugin_id)
         if error_response:
             return error_response, status_code
+
+        plugin_settings.update(handle_request_files(request.files))
 
         # Check if refresh task is running
         if refresh_task.running:
@@ -309,9 +329,12 @@ def update_now():
         else:
             # In development mode, directly update the display
             logger.info("Refresh task not running, updating display directly")
-            plugin = get_plugin_instance(plugin_config)
-            image = plugin.generate_image(plugin_settings, device_config)
-            display_manager.display_image(image, image_settings=plugin_config.get("image_settings", []))
+            try:
+                plugin = get_plugin_instance(plugin_config)
+                image = plugin.generate_image(plugin_settings, device_config)
+                display_manager.display_image(image, image_settings=plugin_config.get("image_settings", []))
+            finally:
+                delete_saved_uploads_for_settings(plugin_settings)
 
     except UploadValidationError as e:
         return jsonify({"error": str(e)}), e.status_code
