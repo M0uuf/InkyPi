@@ -1,7 +1,12 @@
 from flask import Blueprint, request, jsonify, current_app, render_template
 import os
 import logging
-from utils.env_file import ENV_KEY_PATTERN, parse_env_file, validate_env_value, write_env_file
+from utils.env_file import (
+    parse_env_file,
+    validate_env_key,
+    validate_env_value,
+    write_env_file,
+)
 
 logger = logging.getLogger(__name__)
 apikeys_bp = Blueprint("apikeys", __name__)
@@ -59,9 +64,10 @@ def save_apikeys():
             if not key:
                 continue
             
-            # Validate key format
-            if not ENV_KEY_PATTERN.match(key):
-                return jsonify({"error": f"Invalid key format: {key}"}), 400
+            try:
+                key = validate_env_key(key)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
             
             if keep_existing:
                 # Use existing value from .env file
@@ -76,7 +82,12 @@ def save_apikeys():
             
             valid_entries.append((key, value))
         
-        if write_env_file(env_path, valid_entries):
+        try:
+            saved = write_env_file(env_path, valid_entries)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+        if saved:
             # Reload environment variables
             for key, value in valid_entries:
                 os.environ[key] = value

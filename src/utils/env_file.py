@@ -42,8 +42,22 @@ def validate_env_value(value):
     return value
 
 
+def validate_env_key(key):
+    if key is None:
+        key = ""
+    key = str(key).strip()
+    if not ENV_KEY_PATTERN.match(key):
+        raise ValueError(f"Invalid key format: {key}")
+    return key
+
+
 def write_env_file(filepath, entries):
     """Write entries to .env file atomically with restrictive permissions."""
+    validated_entries = [
+        (validate_env_key(key), validate_env_value(value))
+        for key, value in entries
+    ]
+
     temp_path = None
     try:
         env_dir = os.path.dirname(filepath) or "."
@@ -57,7 +71,7 @@ def write_env_file(filepath, entries):
         with os.fdopen(fd, 'w') as f:
             f.write("# InkyPi API Keys and Secrets\n")
             f.write("# Managed via web interface\n\n")
-            for key, value in entries:
+            for key, value in validated_entries:
                 f.write(f"{key}={serialize_env_value(value)}\n")
             f.flush()
             os.fsync(f.fileno())

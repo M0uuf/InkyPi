@@ -56,6 +56,24 @@ def test_write_env_file_tightens_existing_permissions(tmp_path):
     assert dict(parse_env_file(env_path)) == {"NEW_KEY": "value"}
 
 
+def test_write_env_file_rejects_control_characters_directly(tmp_path):
+    env_path = tmp_path / ".env"
+
+    with pytest.raises(ValueError, match="control characters"):
+        write_env_file(env_path, [("BAD_SECRET", "first\nSECOND=injected")])
+
+    assert not env_path.exists()
+
+
+def test_write_env_file_rejects_invalid_keys_directly(tmp_path):
+    env_path = tmp_path / ".env"
+
+    with pytest.raises(ValueError, match="Invalid key format"):
+        write_env_file(env_path, [("BAD-SECRET", "value")])
+
+    assert not env_path.exists()
+
+
 def create_app(tmp_path):
     flask = pytest.importorskip("flask")
     from blueprints import apikeys as apikeys_module
@@ -99,3 +117,20 @@ def test_save_apikeys_rejects_newline_value(tmp_path):
 
     assert response.status_code == 400
     assert "control characters" in response.get_json()["error"]
+
+
+def test_save_apikeys_rejects_keep_existing_newline_value(tmp_path):
+    app = create_app(tmp_path)
+    env_path = tmp_path / ".env"
+    original_env = "BAD_SECRET='first\nSECOND=injected'\n"
+    env_path.write_text(original_env)
+
+    response = app.test_client().post("/api-keys/save", json={
+        "entries": [
+            {"key": "BAD_SECRET", "keepExisting": True}
+        ]
+    })
+
+    assert response.status_code == 400
+    assert "control characters" in response.get_json()["error"]
+    assert env_path.read_text() == original_env
