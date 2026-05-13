@@ -1,8 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app, render_template
-from dotenv import dotenv_values
 import os
-import re
 import logging
+from utils.env_file import ENV_KEY_PATTERN, parse_env_file, validate_env_value, write_env_file
 
 logger = logging.getLogger(__name__)
 apikeys_bp = Blueprint("apikeys", __name__)
@@ -12,36 +11,6 @@ def get_env_path():
     """Get path to .env file in the project root."""
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     return os.path.join(base_dir, '.env')
-
-
-def parse_env_file(filepath):
-    """Parse .env file and return list of (key, value) tuples."""
-    if not os.path.exists(filepath):
-        return []
-    
-    try:
-        env_dict = dotenv_values(filepath)
-        return list(env_dict.items())
-    except Exception as e:
-        logger.error(f"Error parsing .env file: {e}")
-        return []
-
-
-def write_env_file(filepath, entries):
-    """Write entries to .env file."""
-    try:
-        with open(filepath, 'w') as f:
-            f.write("# InkyPi API Keys and Secrets\n")
-            f.write("# Managed via web interface\n\n")
-            for key, value in entries:
-                # Quote values with spaces or special characters
-                if ' ' in value or '"' in value or "'" in value:
-                    value = f'"{value}"'
-                f.write(f"{key}={value}\n")
-        return True
-    except Exception as e:
-        logger.error(f"Error writing .env file: {e}")
-        return False
 
 
 def mask_value(value):
@@ -91,7 +60,7 @@ def save_apikeys():
                 continue
             
             # Validate key format
-            if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', key):
+            if not ENV_KEY_PATTERN.match(key):
                 return jsonify({"error": f"Invalid key format: {key}"}), 400
             
             if keep_existing:
@@ -100,6 +69,10 @@ def save_apikeys():
             else:
                 # Use provided value
                 value = entry.get('value', '').strip()
+                try:
+                    value = validate_env_value(value)
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
             
             valid_entries.append((key, value))
         
