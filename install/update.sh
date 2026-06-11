@@ -76,8 +76,12 @@ update_config() {
     exit 1
   fi
 
-  python3 -c "import json, sys; path, display_type = sys.argv[1], sys.argv[2]; data = json.load(open(path)); data['display_type'] = display_type; open(path, 'w').write(json.dumps(data, indent=4) + '\n')" "$DEVICE_JSON" "$WS_TYPE"
-  echo_success "Updated display_type to: $WS_TYPE"
+  if python3 "$SCRIPT_DIR/update_device_config.py" "$DEVICE_JSON" "$WS_TYPE"; then
+    echo_success "Updated display_type to: $WS_TYPE"
+  else
+    echo_error "ERROR: Failed to update display_type in $DEVICE_JSON."
+    exit 1
+  fi
 }
 
 fetch_waveshare_driver() {
