@@ -16,6 +16,8 @@ import pytz
 logger = logging.getLogger(__name__)
 
 class Calendar(BasePlugin):
+    DEFAULT_CALENDAR_COLOR = "#007BFF"
+
     def generate_settings_template(self):
         template_params = super().generate_settings_template()
         template_params['style_settings'] = True
@@ -305,10 +307,19 @@ class Calendar(BasePlugin):
             text = text[:-4].rstrip() + "..."
         return text
     
+    def _normalize_calendar_colors(self, calendar_urls, colors):
+        if not isinstance(colors, list):
+            colors = []
+        return [
+            colors[index] if index < len(colors) and colors[index] else self.DEFAULT_CALENDAR_COLOR
+            for index, _ in enumerate(calendar_urls)
+        ]
+
     def fetch_ics_events(self, calendar_urls, colors, tz, start_range, end_range):
         parsed_events = []
+        normalized_colors = self._normalize_calendar_colors(calendar_urls, colors)
 
-        for calendar_url, color in zip(calendar_urls, colors):
+        for calendar_url, color in zip(calendar_urls, normalized_colors):
             cal = self.fetch_calendar(calendar_url)
             events = recurring_ical_events.of(cal).between(start_range, end_range)
             contrast_color = self.get_contrast_color(color)

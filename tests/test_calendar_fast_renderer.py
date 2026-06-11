@@ -150,3 +150,79 @@ def test_calendar_fast_daygrid_uses_rolling_view_start_for_grid_start():
 
     assert grid_start.date() == datetime(2026, 5, 11).date()
     assert grid_start.month == 5
+
+
+def fake_ics_event(summary):
+    return {"summary": summary}
+
+
+def run_fetch_with_urls_and_colors(monkeypatch, calendar_urls, colors):
+    plugin = build_calendar_plugin()
+    fetched_urls = []
+
+    def fake_fetch_calendar(url):
+        fetched_urls.append(url)
+        return url
+
+    def fake_events_for(calendar):
+        return types.SimpleNamespace(
+            between=lambda start, end: [fake_ics_event(f"Event for {calendar}")]
+        )
+
+    monkeypatch.setattr(plugin, "fetch_calendar", fake_fetch_calendar)
+    monkeypatch.setattr(plugin, "parse_data_points", lambda event, tz: (
+        "2026-06-11T09:00:00+00:00",
+        "2026-06-11T10:00:00+00:00",
+        False
+    ))
+    import plugins.calendar.calendar as calendar_module
+    monkeypatch.setattr(calendar_module.recurring_ical_events, "of", fake_events_for)
+
+    events = plugin.fetch_ics_events(
+        calendar_urls,
+        colors,
+        "UTC",
+        datetime(2026, 6, 11),
+        datetime(2026, 6, 12)
+    )
+    return fetched_urls, events
+
+
+def test_calendar_fetch_uses_default_color_when_colors_missing(monkeypatch):
+    calendar_urls = [
+        "https://example.invalid/work.ics",
+        "https://example.invalid/home.ics"
+    ]
+
+    fetched_urls, events = run_fetch_with_urls_and_colors(monkeypatch, calendar_urls, None)
+
+    assert fetched_urls == calendar_urls
+    assert [event["backgroundColor"] for event in events] == ["#007BFF", "#007BFF"]
+
+
+def test_calendar_fetch_fills_shorter_color_list(monkeypatch):
+    calendar_urls = [
+        "https://example.invalid/work.ics",
+        "https://example.invalid/home.ics"
+    ]
+
+    fetched_urls, events = run_fetch_with_urls_and_colors(monkeypatch, calendar_urls, ["#112233"])
+
+    assert fetched_urls == calendar_urls
+    assert [event["backgroundColor"] for event in events] == ["#112233", "#007BFF"]
+
+
+def test_calendar_fetch_ignores_extra_colors_and_preserves_matching_colors(monkeypatch):
+    calendar_urls = [
+        "https://example.invalid/work.ics",
+        "https://example.invalid/home.ics"
+    ]
+
+    fetched_urls, events = run_fetch_with_urls_and_colors(
+        monkeypatch,
+        calendar_urls,
+        ["#112233", "#445566", "#778899"]
+    )
+
+    assert fetched_urls == calendar_urls
+    assert [event["backgroundColor"] for event in events] == ["#112233", "#445566"]
