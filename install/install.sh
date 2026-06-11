@@ -373,11 +373,11 @@ setup_earlyoom_service
 install_src
 install_config
 resolve_waveshare_type
+update_config
 fetch_waveshare_driver
 enable_interfaces
 create_venv
 install_executable
-update_config
 install_app_service
 
 echo "Update JS and CSS files"

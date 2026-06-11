@@ -75,3 +75,18 @@ def test_install_scripts_stop_when_device_config_helper_fails(script_name):
     assert 'if python3 "$SCRIPT_DIR/update_device_config.py" "$DEVICE_JSON" "$WS_TYPE"; then' in script
     assert 'echo_error "ERROR: Failed to update display_type in $DEVICE_JSON."' in script
     assert "exit 1" in script
+
+
+def test_install_script_updates_config_before_later_host_mutations():
+    script = (Path(__file__).resolve().parents[1] / "install" / "install.sh").read_text(encoding="utf-8")
+    main = script.split('parse_arguments "$@"', maxsplit=1)[1]
+
+    install_config_position = main.index("\ninstall_config\n")
+    resolve_position = main.index("\nresolve_waveshare_type\n")
+    update_position = main.index("\nupdate_config\n")
+
+    assert install_config_position < resolve_position < update_position
+    assert update_position < main.index("\nfetch_waveshare_driver\n")
+    assert update_position < main.index("\nenable_interfaces\n")
+    assert update_position < main.index("\ncreate_venv\n")
+    assert update_position < main.index("\ninstall_executable\n")
