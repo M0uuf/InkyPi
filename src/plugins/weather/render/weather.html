@@ -1,6 +1,16 @@
 {% extends "plugin.html" %}
 
+{% macro temp_value(value) -%}
+  {%- if value is defined and value is not none -%}
+    {{- value -}}{% if units != "standard" %}°{% endif %}
+  {%- else -%}
+    N/A
+  {%- endif -%}
+{%- endmacro %}
+
 {% block content %}
+{% set daily_forecast = forecast | default([], true) %}
+{% set today_forecast = daily_forecast[0] if daily_forecast else {} %}
 <div id="units-container" data-units="{{ units }}"></div>
 
 
@@ -22,7 +32,7 @@
         <div class="current-weather">
           <div class="current-temp">{{ current_temperature }}<span class="temperature-unit">{{temperature_unit}}</span></div>
           <div class="feels-like">Feels Like {{ feels_like }}{% if units != "standard" %}°{% endif %}</div>
-          <div class="min-max">{{ forecast[0].high }}{% if units != "standard" %}°{% endif %} / {{ forecast[0].low }}{% if units != "standard" %}°{% endif %}</div>
+          <div class="min-max">{{ temp_value(today_forecast.high) }} / {{ temp_value(today_forecast.low) }}</div>
         </div>
     </div>
 
@@ -59,13 +69,13 @@
   <!-- Forecast Row -->
   {% if plugin_settings.displayForecast and plugin_settings.displayForecast == "true" %}
   <div class="forecast">
-    {% for day in forecast[1:(plugin_settings.forecastDays | int) + 1] %}
+    {% for day in daily_forecast[1:(plugin_settings.forecastDays | int) + 1] %}
       <div class="forecast-day">
         <div class="forecast-day-name">{{ day.day }}</div>
         <img class="forecast-icon" src="{{day.icon}}" alt="{{ day.day }} Weather Icon">
         <div class="forecast-temps">
-          <span class="high">{{ day.high }}{% if units != "standard" %}°{% endif %}</span> /
-          <span class="low">{{ day.low }}{% if units != "standard" %}°{% endif %}</span>
+          <span class="high">{{ temp_value(day.high) }}</span> /
+          <span class="low">{{ temp_value(day.low) }}</span>
         </div>
         {% if plugin_settings.moonPhase and plugin_settings.moonPhase == "true" %}
         <div class="separator"></div>
