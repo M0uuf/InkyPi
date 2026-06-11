@@ -1,6 +1,8 @@
 import pytest
 from datetime import datetime
 
+import pytz
+
 from src.model import Playlist, PluginInstance
 
 class TestPlaylist:
@@ -68,6 +70,69 @@ def test_scheduled_plugin_accepts_timezone_aware_current_time():
     plugin = PluginInstance("weather", "Weather", {}, {"scheduled": "08:00"})
 
     assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:00:00+02:00"))
+
+
+def test_interval_plugin_normalizes_legacy_naive_latest_refresh_to_current_timezone():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"interval": 300},
+        latest_refresh_time="2026-05-09T08:00:00"
+    )
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:05:00+02:00"))
+
+
+def test_interval_plugin_keeps_legacy_naive_latest_refresh_not_due_with_aware_current_time():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"interval": 300},
+        latest_refresh_time="2026-05-09T08:00:00"
+    )
+
+    assert not plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:04:59+02:00"))
+
+
+def test_latest_refresh_preserves_existing_aware_timestamp():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"interval": 300},
+        latest_refresh_time="2026-05-09T08:00:00+02:00"
+    )
+
+    latest_refresh = plugin.get_latest_refresh_dt(pytz.timezone("UTC"))
+
+    assert latest_refresh == datetime.fromisoformat("2026-05-09T08:00:00+02:00")
+    assert latest_refresh.utcoffset().total_seconds() == 7200
+
+
+def test_interval_plugin_handles_aware_latest_refresh_with_naive_current_time():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"interval": 300},
+        latest_refresh_time="2026-05-09T08:00:00+02:00"
+    )
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:05:00"))
+
+
+def test_latest_refresh_keeps_naive_timestamp_when_no_fallback_timezone_is_provided():
+    plugin = PluginInstance(
+        "weather",
+        "Weather",
+        {},
+        {"interval": 300},
+        latest_refresh_time="2026-05-09T08:00:00"
+    )
+
+    assert plugin.get_latest_refresh_dt().tzinfo is None
 
 
 def test_scheduled_plugin_refreshes_after_configured_time_once_per_day():

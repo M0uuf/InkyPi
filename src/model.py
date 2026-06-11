@@ -313,14 +313,20 @@ class PluginInstance:
 
     def should_refresh(self, current_time):
         """Checks whether the plugin should be refreshed based on its refresh settings and the current time."""
-        latest_refresh_dt = self.get_latest_refresh_dt()
+        latest_refresh_dt = self.get_latest_refresh_dt(getattr(current_time, "tzinfo", None))
 
         # Check for interval-based refresh
         if "interval" in self.refresh:
             if not latest_refresh_dt:
                 return True
             interval = self.refresh.get("interval")
-            if interval and (current_time - latest_refresh_dt) >= timedelta(seconds=interval):
+            comparison_current_time = current_time
+            if (
+                getattr(current_time, "tzinfo", None) is None
+                and latest_refresh_dt.tzinfo is not None
+            ):
+                comparison_current_time = current_time.replace(tzinfo=latest_refresh_dt.tzinfo)
+            if interval and (comparison_current_time - latest_refresh_dt) >= timedelta(seconds=interval):
                 return True
 
         # Check for scheduled refresh (HH:MM format)
@@ -349,11 +355,16 @@ class PluginInstance:
         """Formats the image path for this plugin instance."""
         return f"{self.plugin_id}_{self.name.replace(' ', '_')}.png"
 
-    def get_latest_refresh_dt(self):
+    def get_latest_refresh_dt(self, fallback_tz=None):
         """Returns the latest refresh time as a datetime object, or None if not set."""
         latest_refresh = None
         if self.latest_refresh_time:
             latest_refresh = datetime.fromisoformat(self.latest_refresh_time)
+            if latest_refresh.tzinfo is None and fallback_tz is not None:
+                if hasattr(fallback_tz, "localize"):
+                    latest_refresh = fallback_tz.localize(latest_refresh)
+                else:
+                    latest_refresh = latest_refresh.replace(tzinfo=fallback_tz)
         return latest_refresh
     
     def to_dict(self):
