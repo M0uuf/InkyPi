@@ -158,10 +158,21 @@ fi
 resolve_waveshare_type
 update_config
 
-apt-get update -y > /dev/null &
+echo "Fetching available system dependency updates."
+if apt-get update -y > /dev/null; then
+  echo_success "Fetched system dependency updates."
+else
+  echo_error "ERROR: Failed to fetch system dependency updates."
+  exit 1
+fi
 if [ -f "$APT_REQUIREMENTS_FILE" ]; then
   echo "Installing system dependencies... "
-  xargs -a "$APT_REQUIREMENTS_FILE" sudo apt-get install -y > /dev/null && echo_success "Installed system dependencies."
+  if xargs -a "$APT_REQUIREMENTS_FILE" sudo apt-get install -y > /dev/null; then
+    echo_success "Installed system dependencies."
+  else
+    echo_error "ERROR: Failed to install system dependencies."
+    exit 1
+  fi
 else
   echo_error "ERROR: System dependencies file $APT_REQUIREMENTS_FILE not found!"
   exit 1
@@ -189,12 +200,12 @@ source "$VENV_PATH/bin/activate"
 
 # Upgrade pip
 echo "Upgrading pip..."
-$VENV_PATH/bin/python -m pip install --upgrade pip setuptools wheel > /dev/null && echo_success "Pip upgraded successfully."
+"$VENV_PATH/bin/python" -m pip install --upgrade pip setuptools wheel > /dev/null && echo_success "Pip upgraded successfully."
 
 # Install or update Python dependencies
 if [ -f "$PIP_REQUIREMENTS_FILE" ]; then
   echo "Updating Python dependencies..."
-  $VENV_PATH/bin/python -m pip install --upgrade -r "$PIP_REQUIREMENTS_FILE" -qq > /dev/null && echo_success "Dependencies updated successfully."
+  "$VENV_PATH/bin/python" -m pip install --upgrade -r "$PIP_REQUIREMENTS_FILE" -qq > /dev/null && echo_success "Dependencies updated successfully."
 else
   echo_error "ERROR: Requirements file $PIP_REQUIREMENTS_FILE not found!"
   exit 1
@@ -202,30 +213,30 @@ fi
 
 if [ -f "$WS_REQUIREMENTS_FILE" ]; then
   echo "Updating Waveshare Python dependencies..."
-  $VENV_PATH/bin/python -m pip install --upgrade -r "$WS_REQUIREMENTS_FILE" -qq > /dev/null && echo_success "Waveshare dependencies updated successfully."
+  "$VENV_PATH/bin/python" -m pip install --upgrade -r "$WS_REQUIREMENTS_FILE" -qq > /dev/null && echo_success "Waveshare dependencies updated successfully."
 else
   echo_error "ERROR: Waveshare requirements file $WS_REQUIREMENTS_FILE not found!"
   exit 1
 fi
 
-if $VENV_PATH/bin/python -m pip show inky > /dev/null 2>&1; then
+if "$VENV_PATH/bin/python" -m pip show inky > /dev/null 2>&1; then
   echo "Removing obsolete Pimoroni Inky dependency..."
-  $VENV_PATH/bin/python -m pip uninstall -y inky > /dev/null && echo_success "Removed obsolete inky package."
+  "$VENV_PATH/bin/python" -m pip uninstall -y inky > /dev/null && echo_success "Removed obsolete inky package."
 fi
 
 for obsolete_package in openai numpy feedparser; do
-  if $VENV_PATH/bin/python -m pip show "$obsolete_package" > /dev/null 2>&1; then
+  if "$VENV_PATH/bin/python" -m pip show "$obsolete_package" > /dev/null 2>&1; then
     echo "Removing obsolete plugin dependency: $obsolete_package"
-    $VENV_PATH/bin/python -m pip uninstall -y "$obsolete_package" > /dev/null && echo_success "Removed obsolete $obsolete_package package."
+    "$VENV_PATH/bin/python" -m pip uninstall -y "$obsolete_package" > /dev/null && echo_success "Removed obsolete $obsolete_package package."
   fi
 done
 
 echo "Updating executable in ${BINPATH}/$APPNAME"
-cp $SCRIPT_DIR/inkypi $BINPATH/
-sudo chmod +x $BINPATH/$APPNAME
+cp "$SCRIPT_DIR/inkypi" "$BINPATH/"
+sudo chmod +x "$BINPATH/$APPNAME"
 
 echo "Update JS and CSS files"
-bash $SCRIPT_DIR/update_vendors.sh > /dev/null
+bash "$SCRIPT_DIR/update_vendors.sh" > /dev/null
 
 update_app_service
 remove_legacy_cli

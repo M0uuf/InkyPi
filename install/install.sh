@@ -33,6 +33,7 @@ VENV_PATH="$INSTALL_PATH/venv_$APPNAME"
 SERVICE_FILE="$APPNAME.service"
 SERVICE_FILE_SOURCE="$SCRIPT_DIR/$SERVICE_FILE"
 SERVICE_FILE_TARGET="/etc/systemd/system/$SERVICE_FILE"
+BOOT_CONFIG_FILE=""
 
 APT_REQUIREMENTS_FILE="$SCRIPT_DIR/debian-requirements.txt"
 PIP_REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
@@ -71,6 +72,19 @@ resolve_waveshare_type() {
   fi
 
   echo "Using Waveshare display type: $WS_TYPE"
+}
+
+resolve_boot_config_file() {
+  if [ -f /boot/firmware/config.txt ]; then
+    BOOT_CONFIG_FILE="/boot/firmware/config.txt"
+  elif [ -f /boot/config.txt ]; then
+    BOOT_CONFIG_FILE="/boot/config.txt"
+  else
+    echo_error "ERROR: Raspberry Pi boot config not found at /boot/firmware/config.txt or /boot/config.txt."
+    exit 1
+  fi
+
+  echo "Using Raspberry Pi boot config: $BOOT_CONFIG_FILE"
 }
 
 check_permissions() {
@@ -114,20 +128,21 @@ fetch_waveshare_driver() {
 
 enable_interfaces(){
   echo "Enabling interfaces required for $APPNAME"
+  resolve_boot_config_file
   #enable spi
-  sudo sed -i 's/^dtparam=spi=.*/dtparam=spi=on/' /boot/firmware/config.txt
-  sudo sed -i 's/^#dtparam=spi=.*/dtparam=spi=on/' /boot/firmware/config.txt
+  sudo sed -i 's/^dtparam=spi=.*/dtparam=spi=on/' "$BOOT_CONFIG_FILE"
+  sudo sed -i 's/^#dtparam=spi=.*/dtparam=spi=on/' "$BOOT_CONFIG_FILE"
   sudo raspi-config nonint do_spi 0
   echo_success "\tSPI Interface has been enabled."
   #enable i2c
-  sudo sed -i 's/^dtparam=i2c_arm=.*/dtparam=i2c_arm=on/' /boot/firmware/config.txt
-  sudo sed -i 's/^#dtparam=i2c_arm=.*/dtparam=i2c_arm=on/' /boot/firmware/config.txt
+  sudo sed -i 's/^dtparam=i2c_arm=.*/dtparam=i2c_arm=on/' "$BOOT_CONFIG_FILE"
+  sudo sed -i 's/^#dtparam=i2c_arm=.*/dtparam=i2c_arm=on/' "$BOOT_CONFIG_FILE"
   sudo raspi-config nonint do_i2c 0
   echo_success "\tI2C Interface has been enabled."
 
   echo "Enabling both CS lines for Waveshare SPI interface in config.txt"
-  if ! grep -E -q '^[[:space:]]*dtoverlay=spi0-2cs' /boot/firmware/config.txt; then
-      sed -i '/^dtparam=spi=on/a dtoverlay=spi0-2cs' /boot/firmware/config.txt
+  if ! grep -E -q '^[[:space:]]*dtoverlay=spi0-2cs' "$BOOT_CONFIG_FILE"; then
+      sudo sed -i '/^dtparam=spi=on/a dtoverlay=spi0-2cs' "$BOOT_CONFIG_FILE"
   else
       echo "dtoverlay for spi0-2cs already specified"
   fi
@@ -174,11 +189,21 @@ echo_blue() {
 
 install_debian_dependencies() {
   if [ -f "$APT_REQUIREMENTS_FILE" ]; then
-    sudo apt-get update > /dev/null &
-    show_loader "Fetch available system dependencies updates. " 
+    echo "Fetching available system dependency updates."
+    if sudo apt-get update > /dev/null; then
+      echo_success "\tFetched system dependency updates."
+    else
+      echo_error "ERROR: Failed to fetch system dependency updates."
+      exit 1
+    fi
 
-    xargs -a "$APT_REQUIREMENTS_FILE" sudo apt-get install -y > /dev/null &
-    show_loader "Installing system dependencies. "
+    echo "Installing system dependencies."
+    if xargs -a "$APT_REQUIREMENTS_FILE" sudo apt-get install -y > /dev/null; then
+      echo_success "\tInstalled system dependencies."
+    else
+      echo_error "ERROR: Failed to install system dependencies."
+      exit 1
+    fi
   else
     echo "ERROR: System dependencies file $APT_REQUIREMENTS_FILE not found!"
     exit 1
@@ -201,12 +226,12 @@ setup_earlyoom_service() {
 create_venv(){
   echo "Creating python virtual environment. "
   python3 -m venv "$VENV_PATH"
-  $VENV_PATH/bin/python -m pip install --upgrade pip setuptools wheel > /dev/null
-  $VENV_PATH/bin/python -m pip install -r $PIP_REQUIREMENTS_FILE -qq > /dev/null &
+  "$VENV_PATH/bin/python" -m pip install --upgrade pip setuptools wheel > /dev/null
+  "$VENV_PATH/bin/python" -m pip install -r "$PIP_REQUIREMENTS_FILE" -qq > /dev/null &
   show_loader "\tInstalling python dependencies. "
 
   echo "Adding additional dependencies for waveshare to the python virtual environment. "
-  $VENV_PATH/bin/python -m pip install -r $WS_REQUIREMENTS_FILE > ws_pip_install.log &
+  "$VENV_PATH/bin/python" -m pip install -r "$WS_REQUIREMENTS_FILE" > ws_pip_install.log &
   show_loader "\tInstalling additional Waveshare python dependencies. "
 
 }
@@ -225,8 +250,8 @@ install_app_service() {
 
 install_executable() {
   echo "Adding executable to ${BINPATH}/$APPNAME"
-  cp $SCRIPT_DIR/inkypi $BINPATH/
-  sudo chmod +x $BINPATH/$APPNAME
+  cp "$SCRIPT_DIR/inkypi" "$BINPATH/"
+  sudo chmod +x "$BINPATH/$APPNAME"
 }
 
 install_config() {
@@ -249,17 +274,13 @@ install_config() {
 update_config() {
   local DEVICE_JSON="$CONFIG_DIR/device.json"
 
-  if grep -q '"display_type":' "$DEVICE_JSON"; then
-      sed -i "s/\"display_type\": \".*\"/\"display_type\": \"$WS_TYPE\"/" "$DEVICE_JSON"
-      echo "Updated display_type to: $WS_TYPE"
-  else
-      if grep -q '}$' "$DEVICE_JSON"; then
-          sed -i '$s/}/,/' "$DEVICE_JSON"
-      fi
-      echo "  \"display_type\": \"$WS_TYPE\"" >> "$DEVICE_JSON"
-      echo "}" >> "$DEVICE_JSON"
-      echo "Added display_type: $WS_TYPE"
+  if [ ! -f "$DEVICE_JSON" ]; then
+      echo_error "ERROR: Device config not found at $DEVICE_JSON."
+      exit 1
   fi
+
+  python3 -c "import json, sys; path, display_type = sys.argv[1], sys.argv[2]; data = json.load(open(path)); data['display_type'] = display_type; open(path, 'w').write(json.dumps(data, indent=4) + '\n')" "$DEVICE_JSON" "$WS_TYPE"
+  echo "Updated display_type to: $WS_TYPE"
 }
 
 stop_service() {
@@ -315,7 +336,7 @@ ask_for_reboot() {
   echo_header "$(echo_success "${APPNAME^^} Installation Complete!")"
   echo_header "[•] A reboot of your Raspberry Pi is required for the changes to take effect"
   echo_header "[•] After your Pi is rebooted, you can access the web UI by going to $(echo_blue "'$hostname.local'") or $(echo_blue "'$ip_address'") in your browser."
-  echo_header "[•] If you encounter any issues or have suggestions, please submit them here: https://github.com/fatihak/InkyPi/issues"
+  echo_header "[•] If you encounter any issues or have suggestions, please submit them here: https://github.com/M0uuf/InkyPi/issues"
 
   read -p "Would you like to restart your Raspberry Pi now? [Y/N] " userInput
   userInput="${userInput^^}"
@@ -356,6 +377,6 @@ update_config
 install_app_service
 
 echo "Update JS and CSS files"
-bash $SCRIPT_DIR/update_vendors.sh > /dev/null
+bash "$SCRIPT_DIR/update_vendors.sh" > /dev/null
 
 ask_for_reboot
