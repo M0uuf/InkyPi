@@ -112,7 +112,7 @@ def build_template_params():
     }
 
 
-def render_weather_template(monkeypatch, display_graph):
+def render_weather_template(monkeypatch, display_graph, template_mutator=None):
     plugin = build_weather_plugin()
     template_params = build_template_params()
     template_params["hourly_forecast"] = [
@@ -134,6 +134,8 @@ def render_weather_template(monkeypatch, display_graph):
     template_params["plugin_settings"]["displayGraph"] = display_graph
     template_params["plugin_settings"]["displayGraphIcons"] = "false"
     template_params["plugin_settings"]["displayRain"] = "false"
+    if template_mutator:
+        template_mutator(template_params)
 
     captured = {}
 
@@ -164,6 +166,33 @@ def test_weather_html_keeps_graph_script_and_canvas_when_graph_enabled(monkeypat
     assert "scripts/chart.js" in rendered_html
     assert "if (!canvas)" in rendered_html
     assert "new Chart(ctx" in rendered_html
+
+
+def test_weather_html_renders_na_when_forecast_is_empty(monkeypatch):
+    rendered_html = render_weather_template(
+        monkeypatch,
+        "false",
+        template_mutator=lambda params: params.update({"forecast": []})
+    )
+
+    assert '<div class="min-max">N/A / N/A</div>' in rendered_html
+    assert '<div class="forecast">' in rendered_html
+    assert 'class="forecast-day"' not in rendered_html
+
+
+def test_weather_html_renders_na_for_missing_forecast_high_low(monkeypatch):
+    def remove_temperature_values(params):
+        params["forecast"][0].pop("high")
+        params["forecast"][1]["low"] = None
+
+    rendered_html = render_weather_template(
+        monkeypatch,
+        "false",
+        template_mutator=remove_temperature_values
+    )
+
+    assert '<div class="min-max">N/A / 12°</div>' in rendered_html
+    assert '<span class="high">22°</span> /\n          <span class="low">N/A</span>' in rendered_html
 
 
 def build_openweather_payload():
