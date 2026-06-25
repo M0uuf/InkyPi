@@ -6,6 +6,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from display import waveshare_display as waveshare_display_module
 from display.waveshare_display import WaveshareDisplay, get_bool_config
 
 
@@ -40,6 +41,12 @@ class FakeEpd:
 
     def sleep(self):
         self.sleep_calls += 1
+
+
+class RaisingDisplayEpd(FakeEpd):
+    def display(self, *buffers):
+        self.display_calls.append(buffers)
+        raise RuntimeError("display failed")
 
 
 def make_display(config_values=None, bi_color=False):
@@ -129,3 +136,60 @@ def test_waveshare_bi_color_display_converts_two_buffers():
 
     assert len(display.epd_display.buffer_calls) == 2
     assert display.epd_display.display_calls == [("buffer-1", "buffer-2")]
+
+
+def test_waveshare_bi_color_display_closes_generated_layers(monkeypatch):
+    display = make_display(bi_color=True)
+    image = Image.new("RGB", (4, 4), "white")
+    black_layer = Image.new("1", (4, 4), 1)
+    red_layer = Image.new("1", (4, 4), 1)
+    closed = []
+
+    black_close = black_layer.close
+    red_close = red_layer.close
+
+    def close_black():
+        closed.append("black")
+        black_close()
+
+    def close_red():
+        closed.append("red")
+        red_close()
+
+    black_layer.close = close_black
+    red_layer.close = close_red
+    monkeypatch.setattr(
+        waveshare_display_module,
+        "split_image_for_bi_color_epd",
+        lambda source_image: (black_layer, red_layer)
+    )
+
+    display.display_image(image)
+
+    assert closed == ["black", "red"]
+    assert image.size == (4, 4)
+
+
+def test_waveshare_bi_color_display_closes_layers_when_display_raises(monkeypatch):
+    display = make_display(bi_color=True)
+    display.epd_display = RaisingDisplayEpd()
+    display.epd_display_init = display.epd_display.Init
+    image = Image.new("RGB", (4, 4), "white")
+    black_layer = Image.new("1", (4, 4), 1)
+    red_layer = Image.new("1", (4, 4), 1)
+    closed = []
+
+    black_layer.close = lambda: closed.append("black")
+    red_layer.close = lambda: closed.append("red")
+    monkeypatch.setattr(
+        waveshare_display_module,
+        "split_image_for_bi_color_epd",
+        lambda source_image: (black_layer, red_layer)
+    )
+
+    try:
+        display.display_image(image)
+    except RuntimeError:
+        pass
+
+    assert closed == ["black", "red"]

@@ -56,6 +56,11 @@ class CapturingDisplay:
         self.images.append(image)
 
 
+class RaisingDisplay:
+    def display_image(self, image, image_settings):
+        raise RuntimeError("display failed")
+
+
 def make_manager(tmp_path, values=None):
     manager = DisplayManager.__new__(DisplayManager)
     manager.device_config = FakeDeviceConfig(tmp_path / "current.png")
@@ -165,3 +170,78 @@ def test_display_manager_logs_processing_phase_timing(caplog, tmp_path):
     assert "Display pipeline enhancement phase completed" in log_text
     assert "Display pipeline concrete display completed" in log_text
     assert "Display pipeline total completed" in log_text
+
+
+def test_display_manager_closes_replaced_internal_images_in_low_resource_mode(monkeypatch, tmp_path):
+    manager = make_manager(tmp_path, {
+        "display_low_resource_mode": True,
+        "orientation": "vertical"
+    })
+    original = Image.new("RGB", (16, 16), "white")
+    oriented = Image.new("RGB", (32, 16), "blue")
+    resized = Image.new("RGB", (16, 16), "red")
+    closed = []
+
+    original_close = original.close
+    oriented_close = oriented.close
+    resized_close = resized.close
+
+    def close_original():
+        closed.append("original")
+        original_close()
+
+    def close_oriented():
+        closed.append("oriented")
+        oriented_close()
+
+    def close_resized():
+        closed.append("resized")
+        resized_close()
+
+    original.close = close_original
+    oriented.close = close_oriented
+    resized.close = close_resized
+
+    monkeypatch.setattr(display_manager_module, "change_orientation", lambda image, orientation: oriented)
+    monkeypatch.setattr(
+        display_manager_module,
+        "resize_image",
+        lambda image, desired_size, image_settings, resample_filter: resized
+    )
+
+    manager.display_image(original, [])
+
+    assert closed == ["oriented"]
+    assert manager.display.images == [resized]
+    assert manager.display.images[0].size == (16, 16)
+
+
+def test_display_manager_collects_only_in_low_resource_mode(monkeypatch, tmp_path):
+    collect_calls = []
+    monkeypatch.setattr(display_manager_module.gc, "collect", lambda: collect_calls.append("collect"))
+
+    make_manager(tmp_path, {"display_low_resource_mode": False}).display_image(
+        Image.new("RGB", (16, 16), "white"),
+        []
+    )
+    assert collect_calls == []
+
+    make_manager(tmp_path, {"display_low_resource_mode": True}).display_image(
+        Image.new("RGB", (16, 16), "white"),
+        []
+    )
+    assert collect_calls == ["collect"]
+
+
+def test_display_manager_collects_in_low_resource_mode_when_display_raises(monkeypatch, tmp_path):
+    manager = make_manager(tmp_path, {"display_low_resource_mode": True})
+    manager.display = RaisingDisplay()
+    collect_calls = []
+    monkeypatch.setattr(display_manager_module.gc, "collect", lambda: collect_calls.append("collect"))
+
+    try:
+        manager.display_image(Image.new("RGB", (16, 16), "white"), [])
+    except RuntimeError:
+        pass
+
+    assert collect_calls == ["collect"]

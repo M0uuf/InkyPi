@@ -43,12 +43,17 @@ def split_image_for_bi_color_epd(image):
 
     palette_data = [*black, *white, *red]
     palette_img = Image.new('P', (1, 1))
-    palette_img.putpalette(palette_data)
-
-    indexed_img = image.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
-    black_layer = indexed_img.point(lambda p: 0 if p == 0 else 1, mode='1')
-    red_layer = indexed_img.point(lambda p: 0 if p == 2 else 1, mode='1')
-    return black_layer, red_layer
+    indexed_img = None
+    try:
+        palette_img.putpalette(palette_data)
+        indexed_img = image.quantize(palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+        black_layer = indexed_img.point(lambda p: 0 if p == 0 else 1, mode='1')
+        red_layer = indexed_img.point(lambda p: 0 if p == 2 else 1, mode='1')
+        return black_layer, red_layer
+    finally:
+        if indexed_img is not None:
+            indexed_img.close()
+        palette_img.close()
 
 
 class WaveshareDisplay(AbstractDisplay):
@@ -181,20 +186,29 @@ class WaveshareDisplay(AbstractDisplay):
         else:
             logger.info("Skipping Waveshare clear before display.")
 
-        buffer_started = time.monotonic()
-        if not self.bi_color_display:
-            display_buffers = (self.epd_display.getbuffer(image),)
-        else:
-            black_layer, red_layer = split_image_for_bi_color_epd(image)
-            display_buffers = (
-                self.epd_display.getbuffer(black_layer),
-                self.epd_display.getbuffer(red_layer),
-            )
-        logger.info("Waveshare buffer conversion completed in %.2fs", time.monotonic() - buffer_started)
+        black_layer = None
+        red_layer = None
+        display_buffers = None
+        try:
+            buffer_started = time.monotonic()
+            if not self.bi_color_display:
+                display_buffers = (self.epd_display.getbuffer(image),)
+            else:
+                black_layer, red_layer = split_image_for_bi_color_epd(image)
+                display_buffers = (
+                    self.epd_display.getbuffer(black_layer),
+                    self.epd_display.getbuffer(red_layer),
+                )
+            logger.info("Waveshare buffer conversion completed in %.2fs", time.monotonic() - buffer_started)
 
-        display_started = time.monotonic()
-        self.epd_display.display(*display_buffers)
-        logger.info("Waveshare display update completed in %.2fs", time.monotonic() - display_started)
+            display_started = time.monotonic()
+            self.epd_display.display(*display_buffers)
+            logger.info("Waveshare display update completed in %.2fs", time.monotonic() - display_started)
+        finally:
+            display_buffers = None
+            for layer in (black_layer, red_layer):
+                if layer is not None:
+                    layer.close()
 
         if sleep_after_display:
             sleep_started = time.monotonic()
