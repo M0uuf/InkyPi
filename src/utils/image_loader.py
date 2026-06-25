@@ -159,16 +159,16 @@ class AdaptiveImageLoader:
                 tmp_path = tmp.name
 
                 session = get_http_session()
-                response = session.get(url, timeout=timeout_ms / 1000, stream=True, headers=request_headers)
-                response.raise_for_status()
+                with session.get(url, timeout=timeout_ms / 1000, stream=True, headers=request_headers) as response:
+                    response.raise_for_status()
 
-                downloaded_bytes = 0
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        tmp.write(chunk)
-                        downloaded_bytes += len(chunk)
+                    downloaded_bytes = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            tmp.write(chunk)
+                            downloaded_bytes += len(chunk)
 
-                logger.debug(f"Downloaded {downloaded_bytes / 1024:.1f}KB to temp file")
+                    logger.debug(f"Downloaded {downloaded_bytes / 1024:.1f}KB to temp file")
 
             # Load from temp file with draft mode
             return self._load_from_file_lowmem(tmp_path, dimensions, resize)
@@ -234,23 +234,23 @@ class AdaptiveImageLoader:
             request_headers = {**self.DEFAULT_HEADERS, **(headers or {})}
 
             session = get_http_session()
-            response = session.get(url, timeout=timeout_ms / 1000, stream=True, headers=request_headers)
-            response.raise_for_status()
+            with session.get(url, timeout=timeout_ms / 1000, stream=True, headers=request_headers) as response:
+                response.raise_for_status()
 
-            with Image.open(BytesIO(response.content)) as img:
-                original_size = img.size
-                original_pixels = original_size[0] * original_size[1]
-                logger.info(f"Downloaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
+                with Image.open(BytesIO(response.content)) as img:
+                    original_size = img.size
+                    original_pixels = original_size[0] * original_size[1]
+                    logger.info(f"Downloaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
 
-                if resize:
-                    processed_img = self._process_and_resize(img, dimensions, original_size)
-                else:
-                    # Even without resizing, apply EXIF orientation correction
-                    processed_img = ImageOps.exif_transpose(img)
-                    if processed_img.size != original_size:
-                        logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {processed_img.size[0]}x{processed_img.size[1]}")
+                    if resize:
+                        processed_img = self._process_and_resize(img, dimensions, original_size)
+                    else:
+                        # Even without resizing, apply EXIF orientation correction
+                        processed_img = ImageOps.exif_transpose(img)
+                        if processed_img.size != original_size:
+                            logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {processed_img.size[0]}x{processed_img.size[1]}")
 
-                return self._detach_from_source(img, processed_img)
+                    return self._detach_from_source(img, processed_img)
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Error downloading image from {url}: {e}")
