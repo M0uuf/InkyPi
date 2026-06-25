@@ -16,6 +16,7 @@ import logging
 import threading
 import argparse
 from utils.app_utils import MAX_UPLOAD_BYTES, generate_startup_image
+from utils.lifecycle import shutdown_display_stack
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.serving import is_running_from_reloader
@@ -121,4 +122,4 @@ if __name__ == '__main__':
         logger.info("Starting Waitress with %s worker thread(s)", SERVER_THREADS)
         serve(app, host="0.0.0.0", port=PORT, threads=SERVER_THREADS)
     finally:
-        refresh_task.stop()
+        shutdown_display_stack(refresh_task, display_manager)

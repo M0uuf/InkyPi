@@ -10,6 +10,8 @@ from pathlib import Path
 from plugins.plugin_registry import get_plugin_instance
 
 logger = logging.getLogger(__name__)
+WAVESHARE_CLEANUP_HOOKS = ("module_exit", "Dev_exit", "cleanup", "close")
+WAVESHARE_CLEANUP_FLAG_HOOKS = {"module_exit", "Dev_exit"}
 
 
 def get_bool_config(device_config, key, default):
@@ -99,7 +101,8 @@ class WaveshareDisplay(AbstractDisplay):
 
         try:
             # Dynamically load module
-            epd_module = importlib.import_module(module_name)  
+            epd_module = importlib.import_module(module_name)
+            self.epd_module = epd_module
             self.epd_display = epd_module.EPD()
             # Workaround for init functions with inconsistent casing
             self.epd_display_init = getattr(self.epd_display, "Init", getattr(self.epd_display, "init", None))
@@ -126,6 +129,71 @@ class WaveshareDisplay(AbstractDisplay):
                 resolution,
                 write=True)
 
+    def _cleanup_hook_accepts_flag(self, hook):
+        try:
+            signature = inspect.signature(hook)
+        except (TypeError, ValueError):
+            return False
+
+        for parameter in signature.parameters.values():
+            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                return True
+            if parameter.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY
+            ):
+                return True
+        return False
+
+    def _run_cleanup_hook(self, owner_name, hook_name, hook):
+        args = (True,) if hook_name in WAVESHARE_CLEANUP_FLAG_HOOKS and self._cleanup_hook_accepts_flag(hook) else ()
+        try:
+            hook(*args)
+            suffix = "(cleanup=True)" if args else ""
+            logger.info("Waveshare cleanup hook %s.%s%s completed.", owner_name, hook_name, suffix)
+            return True
+        except Exception:
+            logger.exception("Exception during Waveshare cleanup hook %s.%s", owner_name, hook_name)
+
+        return False
+
+    def _cleanup_owner(self, owner, owner_name):
+        attempted = False
+        for hook_name in WAVESHARE_CLEANUP_HOOKS:
+            hook = getattr(owner, hook_name, None)
+            if not callable(hook):
+                continue
+            attempted = True
+            if self._run_cleanup_hook(owner_name, hook_name, hook):
+                break
+        return attempted
+
+    def close(self):
+        """Best-effort release of Waveshare display driver resources."""
+        logger.info("Running Waveshare display cleanup.")
+
+        epd_display = getattr(self, "epd_display", None)
+        if epd_display is not None and callable(getattr(epd_display, "sleep", None)):
+            try:
+                epd_display.sleep()
+                logger.info("Waveshare display sleep completed during cleanup.")
+            except Exception:
+                logger.exception("Exception while putting Waveshare display to sleep during cleanup")
+
+        attempted_cleanup = False
+        epd_module = getattr(self, "epd_module", None)
+        if epd_module is not None:
+            attempted_cleanup = self._cleanup_owner(epd_module, "epd_module") or attempted_cleanup
+            epdconfig = getattr(epd_module, "epdconfig", None)
+            if epdconfig is not None:
+                attempted_cleanup = self._cleanup_owner(epdconfig, "epdconfig") or attempted_cleanup
+
+        if epd_display is not None:
+            attempted_cleanup = self._cleanup_owner(epd_display, "epd_display") or attempted_cleanup
+
+        if not attempted_cleanup:
+            logger.info("No Waveshare driver cleanup hook found.")
 
     def display_image(self, image, image_settings=[]):
         
