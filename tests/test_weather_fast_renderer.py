@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 import pytz
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -19,6 +20,7 @@ except ModuleNotFoundError:
 
 from plugins.weather.weather import Weather
 import plugins.base_plugin.base_plugin as base_plugin_module
+import plugins.weather.weather as weather_module
 
 
 class FakeDeviceConfig:
@@ -46,6 +48,34 @@ class FakeDeviceConfig:
 
 def build_weather_plugin():
     return Weather({"id": "weather"})
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None, content=b"error"):
+        self.status_code = status_code
+        self.payload = payload or {}
+        self.content = content
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.closed = True
+
+    def json(self):
+        return deepcopy(self.payload)
+
+
+def patch_weather_response(monkeypatch, response):
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append({"url": url, "timeout": timeout})
+        return response
+
+    monkeypatch.setattr(weather_module.requests, "get", fake_get)
+    return calls
 
 
 def build_template_params():
@@ -616,3 +646,77 @@ def test_weather_unknown_render_mode_warns_and_uses_html_renderer(monkeypatch, c
 
     assert image.size == (800, 480)
     assert "Unknown Weather renderMode" in caplog.text
+
+
+def test_openweather_success_closes_response(monkeypatch):
+    plugin = build_weather_plugin()
+    payload = build_openweather_payload()
+    response = FakeResponse(payload=payload)
+    calls = patch_weather_response(monkeypatch, response)
+
+    result = plugin.get_weather_data("api-key", "metric", 52.5, 13.4)
+
+    assert result == payload
+    assert response.closed is True
+    assert calls[0]["timeout"] == 30
+
+
+def test_openweather_failure_closes_response_and_raises(monkeypatch):
+    plugin = build_weather_plugin()
+    response = FakeResponse(status_code=500, content=b"provider down")
+    patch_weather_response(monkeypatch, response)
+
+    with pytest.raises(RuntimeError, match="Failed to retrieve weather data"):
+        plugin.get_weather_data("api-key", "metric", 52.5, 13.4)
+
+    assert response.closed is True
+
+
+def test_openweather_air_quality_and_location_close_responses(monkeypatch):
+    plugin = build_weather_plugin()
+    aqi_response = FakeResponse(payload={"list": [{"main": {"aqi": 1}}]})
+    patch_weather_response(monkeypatch, aqi_response)
+
+    assert plugin.get_air_quality("api-key", 52.5, 13.4) == {"list": [{"main": {"aqi": 1}}]}
+    assert aqi_response.closed is True
+
+    location_response = FakeResponse(payload=[{"name": "Berlin", "country": "DE"}])
+    patch_weather_response(monkeypatch, location_response)
+
+    assert plugin.get_location("api-key", 52.5, 13.4) == "Berlin, DE"
+    assert location_response.closed is True
+
+
+def test_openmeteo_success_closes_response(monkeypatch):
+    plugin = build_weather_plugin()
+    payload = build_openmeteo_payload()
+    response = FakeResponse(payload=payload)
+    calls = patch_weather_response(monkeypatch, response)
+
+    result = plugin.get_open_meteo_data(52.5, 13.4, "metric", 7, "Europe/Berlin")
+
+    assert result == payload
+    assert response.closed is True
+    assert calls[0]["timeout"] == 30
+    assert "timezone=Europe%2FBerlin" in calls[0]["url"]
+
+
+def test_openmeteo_failure_closes_response_and_raises(monkeypatch):
+    plugin = build_weather_plugin()
+    response = FakeResponse(status_code=503, content=b"provider down")
+    patch_weather_response(monkeypatch, response)
+
+    with pytest.raises(RuntimeError, match="Failed to retrieve Open-Meteo weather data"):
+        plugin.get_open_meteo_data(52.5, 13.4, "metric", 7)
+
+    assert response.closed is True
+
+
+def test_openmeteo_air_quality_closes_response(monkeypatch):
+    plugin = build_weather_plugin()
+    payload = build_openmeteo_air_quality_payload()
+    response = FakeResponse(payload=payload)
+    patch_weather_response(monkeypatch, response)
+
+    assert plugin.get_open_meteo_air_quality(52.5, 13.4, "auto") == payload
+    assert response.closed is True

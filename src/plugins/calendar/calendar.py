@@ -388,9 +388,9 @@ class Calendar(BasePlugin):
         if calendar_url.startswith("webcal://"):
             calendar_url = calendar_url.replace("webcal://", "https://")
         try:
-            response = requests.get(calendar_url, timeout=30)
-            response.raise_for_status()
-            return icalendar.Calendar.from_ical(response.text)
+            with requests.get(calendar_url, timeout=30) as response:
+                response.raise_for_status()
+                return icalendar.Calendar.from_ical(response.text)
         except Exception as e:
             raise RuntimeError(f"Failed to fetch iCalendar url: {str(e)}")
 
