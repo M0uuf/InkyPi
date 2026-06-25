@@ -124,20 +124,20 @@ class AdaptiveImageLoader:
         logger.debug("Loading image from BytesIO")
 
         try:
-            img = Image.open(data)
-            original_size = img.size
-            original_pixels = original_size[0] * original_size[1]
-            logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
+            with Image.open(data) as img:
+                original_size = img.size
+                original_pixels = original_size[0] * original_size[1]
+                logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
 
-            if resize:
-                img = self._process_and_resize(img, dimensions, original_size)
-            else:
-                # Even without resizing, apply EXIF orientation correction
-                img = ImageOps.exif_transpose(img)
-                if img.size != original_size:
-                    logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {img.size[0]}x{img.size[1]}")
+                if resize:
+                    processed_img = self._process_and_resize(img, dimensions, original_size)
+                else:
+                    # Even without resizing, apply EXIF orientation correction
+                    processed_img = ImageOps.exif_transpose(img)
+                    if processed_img.size != original_size:
+                        logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {processed_img.size[0]}x{processed_img.size[1]}")
 
-            return img
+                return self._detach_from_source(img, processed_img)
         except Exception as e:
             logger.error(f"Error loading image from BytesIO: {e}")
             return None
@@ -191,28 +191,28 @@ class AdaptiveImageLoader:
     def _load_from_file_lowmem(self, path, dimensions, resize):
         """Low-memory file loading using draft mode."""
         try:
-            img = Image.open(path)
-            original_size = img.size
-            original_pixels = original_size[0] * original_size[1]
-            logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
+            with Image.open(path) as img:
+                original_size = img.size
+                original_pixels = original_size[0] * original_size[1]
+                logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
 
-            if resize:
-                # Apply draft mode for massive memory savings during decode
-                img.draft('RGB', (dimensions[0] * 2, dimensions[1] * 2))
-                logger.debug(f"Draft mode applied - PIL will decode at reduced resolution")
+                if resize:
+                    # Apply draft mode for massive memory savings during decode
+                    img.draft('RGB', (dimensions[0] * 2, dimensions[1] * 2))
+                    logger.debug(f"Draft mode applied - PIL will decode at reduced resolution")
 
-                # Force load with draft mode
-                img.load()
-                logger.debug(f"Image decoded: {img.size[0]}x{img.size[1]} (draft mode reduced from {original_size[0]}x{original_size[1]})")
+                    # Force load with draft mode
+                    img.load()
+                    logger.debug(f"Image decoded: {img.size[0]}x{img.size[1]} (draft mode reduced from {original_size[0]}x{original_size[1]})")
 
-                img = self._process_and_resize(img, dimensions, original_size)
-            else:
-                # Even without resizing, apply EXIF orientation correction
-                img = ImageOps.exif_transpose(img)
-                if img.size != original_size:
-                    logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {img.size[0]}x{img.size[1]}")
+                    processed_img = self._process_and_resize(img, dimensions, original_size)
+                else:
+                    # Even without resizing, apply EXIF orientation correction
+                    processed_img = ImageOps.exif_transpose(img)
+                    if processed_img.size != original_size:
+                        logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {processed_img.size[0]}x{processed_img.size[1]}")
 
-            return img
+                return self._detach_from_source(img, processed_img)
 
         except MemoryError as e:
             logger.error(f"Out of memory while loading {path}: {e}")
@@ -237,20 +237,20 @@ class AdaptiveImageLoader:
             response = session.get(url, timeout=timeout_ms / 1000, stream=True, headers=request_headers)
             response.raise_for_status()
 
-            img = Image.open(BytesIO(response.content))
-            original_size = img.size
-            original_pixels = original_size[0] * original_size[1]
-            logger.info(f"Downloaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
+            with Image.open(BytesIO(response.content)) as img:
+                original_size = img.size
+                original_pixels = original_size[0] * original_size[1]
+                logger.info(f"Downloaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
 
-            if resize:
-                img = self._process_and_resize(img, dimensions, original_size)
-            else:
-                # Even without resizing, apply EXIF orientation correction
-                img = ImageOps.exif_transpose(img)
-                if img.size != original_size:
-                    logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {img.size[0]}x{img.size[1]}")
+                if resize:
+                    processed_img = self._process_and_resize(img, dimensions, original_size)
+                else:
+                    # Even without resizing, apply EXIF orientation correction
+                    processed_img = ImageOps.exif_transpose(img)
+                    if processed_img.size != original_size:
+                        logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {processed_img.size[0]}x{processed_img.size[1]}")
 
-            return img
+                return self._detach_from_source(img, processed_img)
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Error downloading image from {url}: {e}")
@@ -262,26 +262,33 @@ class AdaptiveImageLoader:
     def _load_from_file_fast(self, path, dimensions, resize):
         """High-performance file loading using in-memory processing."""
         try:
-            img = Image.open(path)
-            original_size = img.size
-            original_pixels = original_size[0] * original_size[1]
-            logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
+            with Image.open(path) as img:
+                original_size = img.size
+                original_pixels = original_size[0] * original_size[1]
+                logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} ({img.mode} mode, {original_pixels/1_000_000:.1f}MP)")
 
-            if resize:
-                img = self._process_and_resize(img, dimensions, original_size)
-            else:
-                # Even without resizing, apply EXIF orientation correction
-                img = ImageOps.exif_transpose(img)
-                if img.size != original_size:
-                    logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {img.size[0]}x{img.size[1]}")
+                if resize:
+                    processed_img = self._process_and_resize(img, dimensions, original_size)
+                else:
+                    # Even without resizing, apply EXIF orientation correction
+                    processed_img = ImageOps.exif_transpose(img)
+                    if processed_img.size != original_size:
+                        logger.debug(f"EXIF orientation applied: {original_size[0]}x{original_size[1]} -> {processed_img.size[0]}x{processed_img.size[1]}")
 
-            return img
+                return self._detach_from_source(img, processed_img)
 
         except Exception as e:
             logger.error(f"Error loading image from {path}: {e}")
             return None
 
     # ========== SHARED PROCESSING LOGIC ==========
+
+    def _detach_from_source(self, source_img, processed_img):
+        """Return an image that remains usable after the source image is closed."""
+        if processed_img is source_img:
+            return source_img.copy()
+        processed_img.load()
+        return processed_img
 
     def _process_and_resize(self, img, dimensions, original_size):
         """
