@@ -93,7 +93,7 @@ def test_take_screenshot_logs_chromium_duration(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="utils.image_utils")
     monkeypatch.setattr(image_utils, "_find_chromium_binary", lambda: "chromium")
 
-    def fake_run(command, capture_output, check):
+    def fake_run(command, stdout, stderr, timeout, check):
         screenshot_arg = next(arg for arg in command if arg.startswith("--screenshot="))
         screenshot_path = screenshot_arg.split("=", 1)[1]
         Image.new("RGB", (10, 8), "white").save(screenshot_path)
@@ -113,7 +113,7 @@ def test_take_screenshot_html_logs_diagnostics_when_enabled(monkeypatch, tmp_pat
     monkeypatch.setenv(image_utils.HTML_RENDER_CACHE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr(image_utils, "_find_chromium_binary", lambda: "chromium")
 
-    def fake_run(command, capture_output, check):
+    def fake_run(command, stdout, stderr, timeout, check):
         screenshot_arg = next(arg for arg in command if arg.startswith("--screenshot="))
         screenshot_path = screenshot_arg.split("=", 1)[1]
         Image.new("RGB", (10, 8), "white").save(screenshot_path)
@@ -135,6 +135,69 @@ def test_take_screenshot_html_logs_diagnostics_when_enabled(monkeypatch, tmp_pat
     assert "phase: chromium process" in caplog.text
     assert "phase: png load" in caplog.text
     assert "HTML screenshot diagnostics summary" in caplog.text
+
+
+def test_take_screenshot_passes_hard_timeout_and_does_not_capture_stdout(monkeypatch):
+    monkeypatch.setattr(image_utils, "_find_chromium_binary", lambda: "chromium")
+    captured = {}
+
+    def fake_run(command, stdout, stderr, timeout, check):
+        captured["stdout"] = stdout
+        captured["stderr"] = stderr
+        captured["timeout"] = timeout
+        captured["check"] = check
+        screenshot_arg = next(arg for arg in command if arg.startswith("--screenshot="))
+        screenshot_path = screenshot_arg.split("=", 1)[1]
+        Image.new("RGB", (10, 8), "white").save(screenshot_path)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(image_utils.subprocess, "run", fake_run)
+
+    image = image_utils.take_screenshot("/tmp/source.html", (10, 8), timeout_ms=5000)
+
+    assert image.size == (10, 8)
+    assert captured["stdout"] == image_utils.subprocess.DEVNULL
+    assert captured["stderr"] == image_utils.subprocess.PIPE
+    assert captured["timeout"] == 15
+    assert captured["check"] is False
+
+
+def test_take_screenshot_timeout_returns_none_and_removes_temp_png(monkeypatch, caplog):
+    caplog.set_level(logging.ERROR, logger="utils.image_utils")
+    monkeypatch.setattr(image_utils, "_find_chromium_binary", lambda: "chromium")
+    screenshot_paths = []
+
+    def fake_run(command, stdout, stderr, timeout, check):
+        screenshot_arg = next(arg for arg in command if arg.startswith("--screenshot="))
+        screenshot_path = screenshot_arg.split("=", 1)[1]
+        screenshot_paths.append(Path(screenshot_path))
+        Image.new("RGB", (10, 8), "white").save(screenshot_path)
+        raise image_utils.subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr(image_utils.subprocess, "run", fake_run)
+
+    image = image_utils.take_screenshot("/tmp/source.html", (10, 8), timeout_ms=1000)
+
+    assert image is None
+    assert "Chromium screenshot timed out after 11.0s" in caplog.text
+    assert len(screenshot_paths) == 1
+    assert not screenshot_paths[0].exists()
+
+
+def test_take_screenshot_nonzero_return_logs_stderr(monkeypatch, caplog):
+    caplog.set_level(logging.ERROR, logger="utils.image_utils")
+    monkeypatch.setattr(image_utils, "_find_chromium_binary", lambda: "chromium")
+
+    def fake_run(command, stdout, stderr, timeout, check):
+        return SimpleNamespace(returncode=1, stderr=b"chromium failed")
+
+    monkeypatch.setattr(image_utils.subprocess, "run", fake_run)
+
+    image = image_utils.take_screenshot("/tmp/source.html", (10, 8))
+
+    assert image is None
+    assert "Failed to take screenshot (return code: 1)" in caplog.text
+    assert "Chromium stderr: chromium failed" in caplog.text
 
 
 def test_base_plugin_render_image_logs_template_and_screenshot(monkeypatch, caplog):

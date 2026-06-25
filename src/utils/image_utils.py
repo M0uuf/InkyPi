@@ -348,6 +348,7 @@ def _find_chromium_binary():
 def take_screenshot(target, dimensions, timeout_ms=None, diagnostics_enabled=False):
     image = None
     img_file_path = None
+    chromium_timeout_seconds = ((timeout_ms or 30000) / 1000) + 10
     diagnostics = PerformanceDiagnostics(
         enabled=diagnostics_enabled,
         logger=logger,
@@ -397,7 +398,13 @@ def take_screenshot(target, dimensions, timeout_ms=None, diagnostics_enabled=Fal
         )
         chromium_started = time.monotonic()
         with diagnostics.phase("chromium process"):
-            result = subprocess.run(command, capture_output=True, check=False)
+            result = subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=chromium_timeout_seconds,
+                check=False
+            )
         chromium_elapsed = time.monotonic() - chromium_started
         logger.info(
             "Chromium screenshot process completed in %.2fs | return_code: %s",
@@ -417,6 +424,8 @@ def take_screenshot(target, dimensions, timeout_ms=None, diagnostics_enabled=Fal
             with Image.open(img_file_path) as img:
                 image = img.copy()
 
+    except subprocess.TimeoutExpired:
+        logger.error("Chromium screenshot timed out after %.1fs", chromium_timeout_seconds)
     except Exception as e:
         logger.error(f"Failed to take screenshot: {str(e)}")
     finally:
