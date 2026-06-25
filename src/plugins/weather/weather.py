@@ -973,35 +973,33 @@ class Weather(BasePlugin):
 
     def get_weather_data(self, api_key, units, lat, long):
         url = WEATHER_URL.format(lat=lat, long=long, units=units, api_key=api_key)
-        response = requests.get(url, timeout=30)
-        if not 200 <= response.status_code < 300:
-            logger.error(f"Failed to retrieve weather data: {response.content}")
-            raise RuntimeError("Failed to retrieve weather data.")
+        with requests.get(url, timeout=30) as response:
+            if not 200 <= response.status_code < 300:
+                logger.error(f"Failed to retrieve weather data: {response.content}")
+                raise RuntimeError("Failed to retrieve weather data.")
 
-        return response.json()
+            return response.json()
 
     def get_air_quality(self, api_key, lat, long):
         url = AIR_QUALITY_URL.format(lat=lat, long=long, api_key=api_key)
-        response = requests.get(url, timeout=30)
+        with requests.get(url, timeout=30) as response:
+            if not 200 <= response.status_code < 300:
+                logger.error(f"Failed to get air quality data: {response.content}")
+                raise RuntimeError("Failed to retrieve air quality data.")
 
-        if not 200 <= response.status_code < 300:
-            logger.error(f"Failed to get air quality data: {response.content}")
-            raise RuntimeError("Failed to retrieve air quality data.")
-
-        return response.json()
+            return response.json()
 
     def get_location(self, api_key, lat, long):
         url = GEOCODING_URL.format(lat=lat, long=long, api_key=api_key)
-        response = requests.get(url, timeout=30)
+        with requests.get(url, timeout=30) as response:
+            if not 200 <= response.status_code < 300:
+                logger.error(f"Failed to get location: {response.content}")
+                raise RuntimeError("Failed to retrieve location.")
 
-        if not 200 <= response.status_code < 300:
-            logger.error(f"Failed to get location: {response.content}")
-            raise RuntimeError("Failed to retrieve location.")
+            location_data = response.json()[0]
+            location_str = f"{location_data.get('name')}, {location_data.get('state', location_data.get('country'))}"
 
-        location_data = response.json()[0]
-        location_str = f"{location_data.get('name')}, {location_data.get('state', location_data.get('country'))}"
-
-        return location_str
+            return location_str
 
     def get_open_meteo_data(self, lat, long, units, forecast_days, timezone_name="auto"):
         unit_params = OPEN_METEO_UNIT_PARAMS[units]
@@ -1011,22 +1009,21 @@ class Weather(BasePlugin):
             forecast_days=forecast_days,
             timezone=quote(timezone_name, safe="")
         ) + f"&{unit_params}"
-        response = requests.get(url, timeout=30)
+        with requests.get(url, timeout=30) as response:
+            if not 200 <= response.status_code < 300:
+                logger.error(f"Failed to retrieve Open-Meteo weather data: {response.content}")
+                raise RuntimeError("Failed to retrieve Open-Meteo weather data.")
 
-        if not 200 <= response.status_code < 300:
-            logger.error(f"Failed to retrieve Open-Meteo weather data: {response.content}")
-            raise RuntimeError("Failed to retrieve Open-Meteo weather data.")
-        
-        return response.json()
+            return response.json()
 
     def get_open_meteo_air_quality(self, lat, long, timezone_name="auto"):
         url = OPEN_METEO_AIR_QUALITY_URL.format(lat=lat, long=long, timezone=quote(timezone_name, safe=""))
-        response = requests.get(url, timeout=30)
-        if not 200 <= response.status_code < 300:
-            logger.error(f"Failed to retrieve Open-Meteo air quality data: {response.content}")
-            raise RuntimeError("Failed to retrieve Open-Meteo air quality data.")
-        
-        return response.json()
+        with requests.get(url, timeout=30) as response:
+            if not 200 <= response.status_code < 300:
+                logger.error(f"Failed to retrieve Open-Meteo air quality data: {response.content}")
+                raise RuntimeError("Failed to retrieve Open-Meteo air quality data.")
+
+            return response.json()
     
     def format_time(self, dt, time_format, hour_only=False, include_am_pm=True):
         """Format datetime based on 12h or 24h preference"""

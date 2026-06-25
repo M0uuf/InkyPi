@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -15,6 +16,35 @@ if "recurring_ical_events" not in sys.modules:
     )
 
 from plugins.calendar.calendar import Calendar
+import plugins.calendar.calendar as calendar_module
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, text="BEGIN:VCALENDAR\nEND:VCALENDAR"):
+        self.status_code = status_code
+        self.text = text
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.closed = True
+
+    def raise_for_status(self):
+        if not 200 <= self.status_code < 300:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+def patch_calendar_response(monkeypatch, response):
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append({"url": url, "timeout": timeout})
+        return response
+
+    monkeypatch.setattr(calendar_module.requests, "get", fake_get)
+    return calls
 
 
 class FakeDeviceConfig:
@@ -226,3 +256,33 @@ def test_calendar_fetch_ignores_extra_colors_and_preserves_matching_colors(monke
 
     assert fetched_urls == calendar_urls
     assert [event["backgroundColor"] for event in events] == ["#112233", "#445566"]
+
+
+def test_calendar_fetch_closes_response_and_parses_ics(monkeypatch):
+    plugin = build_calendar_plugin()
+    response = FakeResponse(text="BEGIN:VCALENDAR\nSUMMARY:Test\nEND:VCALENDAR")
+    calls = patch_calendar_response(monkeypatch, response)
+    parsed_calendar = object()
+
+    monkeypatch.setattr(
+        calendar_module.icalendar.Calendar,
+        "from_ical",
+        staticmethod(lambda text: parsed_calendar)
+    )
+
+    result = plugin.fetch_calendar("webcal://example.invalid/calendar.ics")
+
+    assert result is parsed_calendar
+    assert response.closed is True
+    assert calls == [{"url": "https://example.invalid/calendar.ics", "timeout": 30}]
+
+
+def test_calendar_fetch_failure_closes_response_and_raises(monkeypatch):
+    plugin = build_calendar_plugin()
+    response = FakeResponse(status_code=404, text="missing")
+    patch_calendar_response(monkeypatch, response)
+
+    with pytest.raises(RuntimeError, match="Failed to fetch iCalendar url"):
+        plugin.fetch_calendar("https://example.invalid/missing.ics")
+
+    assert response.closed is True
