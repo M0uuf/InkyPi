@@ -74,6 +74,60 @@ def test_take_screenshot_html_cache_key_includes_extra_fingerprint(monkeypatch, 
     assert len(list(tmp_path.glob("*.png"))) == 2
 
 
+def test_html_render_cache_locks_are_bounded_with_cache_files(monkeypatch, tmp_path):
+    monkeypatch.setenv(image_utils.HTML_RENDER_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(image_utils, "HTML_RENDER_CACHE_MAX_ENTRIES", 3)
+    with image_utils._html_render_cache_locks_guard:
+        image_utils._html_render_cache_locks.clear()
+
+    calls = []
+
+    def fake_take_screenshot(target, dimensions, timeout_ms=None):
+        calls.append(target)
+        return Image.new("RGB", dimensions, "white")
+
+    monkeypatch.setattr(image_utils, "take_screenshot", fake_take_screenshot)
+
+    for index in range(8):
+        image_utils.take_screenshot_html(f"<html>{index}</html>", (16, 12))
+
+    assert len(calls) == 8
+    assert len(list(tmp_path.glob("*.png"))) == 3
+    with image_utils._html_render_cache_locks_guard:
+        assert len(image_utils._html_render_cache_locks) <= 3
+
+
+def test_html_render_cache_lock_helper_reuses_retained_key(monkeypatch):
+    monkeypatch.setattr(image_utils, "HTML_RENDER_CACHE_MAX_ENTRIES", 3)
+    with image_utils._html_render_cache_locks_guard:
+        image_utils._html_render_cache_locks.clear()
+
+    cache_key = image_utils._get_html_render_cache_key("<html>same</html>", (16, 12))
+
+    first_lock = image_utils._get_html_render_cache_lock(cache_key)
+    second_lock = image_utils._get_html_render_cache_lock(cache_key)
+
+    assert second_lock is first_lock
+
+
+def test_html_render_cache_prune_keeps_locked_helper_entry(monkeypatch):
+    monkeypatch.setattr(image_utils, "HTML_RENDER_CACHE_MAX_ENTRIES", 1)
+    with image_utils._html_render_cache_locks_guard:
+        image_utils._html_render_cache_locks.clear()
+
+    retained_key = image_utils._get_html_render_cache_key("<html>retained</html>", (16, 12))
+    retained_lock = image_utils._get_html_render_cache_lock(retained_key)
+
+    retained_lock.acquire()
+    try:
+        image_utils._get_html_render_cache_lock("newer-key")
+        with image_utils._html_render_cache_locks_guard:
+            image_utils._prune_html_render_cache_locks()
+            assert retained_key in image_utils._html_render_cache_locks
+    finally:
+        retained_lock.release()
+
+
 def test_default_html_render_cache_directory_is_private(monkeypatch, tmp_path):
     monkeypatch.delenv(image_utils.HTML_RENDER_CACHE_DIR_ENV, raising=False)
     monkeypatch.setattr(image_utils.tempfile, "gettempdir", lambda: str(tmp_path))

@@ -9,6 +9,8 @@ import subprocess
 import shutil
 import time
 import threading
+from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 from utils.performance import PerformanceDiagnostics
 
@@ -29,7 +31,15 @@ RESIZE_FILTERS = {
     "bicubic": Image.Resampling.BICUBIC,
     "lanczos": Image.Resampling.LANCZOS
 }
-_html_render_cache_locks = {}
+
+
+class _HtmlRenderCacheLockEntry:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.active_count = 0
+
+
+_html_render_cache_locks = OrderedDict()
 _html_render_cache_locks_guard = threading.Lock()
 
 def get_image(image_url):
@@ -204,7 +214,56 @@ def _get_html_render_cache_path(html_str, dimensions, timeout_ms=None, cache_ext
 
 def _get_html_render_cache_lock(cache_key):
     with _html_render_cache_locks_guard:
-        return _html_render_cache_locks.setdefault(cache_key, threading.Lock())
+        entry = _html_render_cache_locks.get(cache_key)
+        if entry is None:
+            entry = _HtmlRenderCacheLockEntry()
+            _html_render_cache_locks[cache_key] = entry
+        else:
+            _html_render_cache_locks.move_to_end(cache_key)
+        _prune_html_render_cache_locks(excluded_cache_keys={cache_key})
+        return entry.lock
+
+
+def _prune_html_render_cache_locks(excluded_cache_keys=frozenset()):
+    """Evict inactive render-cache locks. Caller must hold the registry guard."""
+    for cache_key in list(_html_render_cache_locks.keys()):
+        if len(_html_render_cache_locks) <= HTML_RENDER_CACHE_MAX_ENTRIES:
+            break
+        if cache_key in excluded_cache_keys:
+            continue
+        entry = _html_render_cache_locks[cache_key]
+        if entry.active_count == 0 and not entry.lock.locked():
+            del _html_render_cache_locks[cache_key]
+
+
+def _discard_html_render_cache_lock(cache_key):
+    with _html_render_cache_locks_guard:
+        entry = _html_render_cache_locks.get(cache_key)
+        if entry is not None and entry.active_count == 0 and not entry.lock.locked():
+            del _html_render_cache_locks[cache_key]
+
+
+@contextmanager
+def _html_render_cache_lock(cache_key):
+    with _html_render_cache_locks_guard:
+        entry = _html_render_cache_locks.get(cache_key)
+        if entry is None:
+            entry = _HtmlRenderCacheLockEntry()
+            _html_render_cache_locks[cache_key] = entry
+        else:
+            _html_render_cache_locks.move_to_end(cache_key)
+        entry.active_count += 1
+        _prune_html_render_cache_locks(excluded_cache_keys={cache_key})
+
+    try:
+        with entry.lock:
+            yield
+    finally:
+        with _html_render_cache_locks_guard:
+            entry.active_count -= 1
+            if _html_render_cache_locks.get(cache_key) is entry:
+                _html_render_cache_locks.move_to_end(cache_key)
+            _prune_html_render_cache_locks()
 
 
 def _load_cached_html_render(cache_path):
@@ -238,6 +297,7 @@ def _prune_html_render_cache(cache_dir):
     for _, cache_file in cache_files[HTML_RENDER_CACHE_MAX_ENTRIES:]:
         try:
             cache_file.unlink()
+            _discard_html_render_cache_lock(cache_file.stem)
             logger.debug("Deleted stale HTML screenshot cache file: %s", cache_file)
         except OSError as e:
             logger.warning("Failed to delete stale HTML screenshot cache file %s: %s", cache_file, e)
@@ -264,9 +324,8 @@ def _store_cached_html_render(cache_path, image):
 def take_screenshot_html(html_str, dimensions, timeout_ms=None, cache_extra=None, diagnostics_enabled=False):
     cache_key = _get_html_render_cache_key(html_str, dimensions, timeout_ms, cache_extra)
     cache_path = _get_html_render_cache_dir() / f"{cache_key}.png"
-    cache_lock = _get_html_render_cache_lock(cache_key)
 
-    with cache_lock:
+    with _html_render_cache_lock(cache_key):
         return _take_screenshot_html_uncached(
             html_str,
             dimensions,
