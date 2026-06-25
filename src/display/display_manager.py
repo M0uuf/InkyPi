@@ -115,6 +115,25 @@ class DisplayManager:
         owned_image_ids.add(id(next_image))
         return next_image
 
+    def close(self):
+        """Release concrete display resources when the application shuts down."""
+        display = getattr(self, "display", None)
+        if display is None:
+            logger.info("Display cleanup skipped; no concrete display is initialized.")
+            return
+
+        cleanup_method = getattr(display, "close", None) or getattr(display, "cleanup", None)
+        if not callable(cleanup_method):
+            logger.info("Display cleanup skipped; %s has no cleanup hook.", display.__class__.__name__)
+            return
+
+        with self.display_lock:
+            try:
+                logger.info("Running display cleanup for %s.", display.__class__.__name__)
+                cleanup_method()
+            except Exception:
+                logger.exception("Exception during display cleanup")
+
     def display_image(self, image, image_settings=[]):
         
         """

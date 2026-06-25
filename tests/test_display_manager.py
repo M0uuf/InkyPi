@@ -56,6 +56,20 @@ class CapturingDisplay:
         self.images.append(image)
 
 
+class CloseableDisplay(CapturingDisplay):
+    def __init__(self):
+        super().__init__()
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+
+
+class FailingCloseDisplay(CapturingDisplay):
+    def close(self):
+        raise RuntimeError("close failed")
+
+
 class RaisingDisplay:
     def display_image(self, image, image_settings):
         raise RuntimeError("display failed")
@@ -245,3 +259,32 @@ def test_display_manager_collects_in_low_resource_mode_when_display_raises(monke
         pass
 
     assert collect_calls == ["collect"]
+
+
+def test_display_manager_close_calls_concrete_display_under_lock(tmp_path):
+    manager = make_manager(tmp_path)
+    display = CloseableDisplay()
+    manager.display = display
+
+    manager.close()
+
+    assert display.close_calls == 1
+
+
+def test_display_manager_close_is_harmless_without_cleanup_hook(tmp_path, caplog):
+    manager = make_manager(tmp_path)
+
+    caplog.set_level("INFO", logger="display.display_manager")
+    manager.close()
+
+    assert "has no cleanup hook" in caplog.text
+
+
+def test_display_manager_close_logs_and_swallows_cleanup_exceptions(tmp_path, caplog):
+    manager = make_manager(tmp_path)
+    manager.display = FailingCloseDisplay()
+
+    caplog.set_level("ERROR", logger="display.display_manager")
+    manager.close()
+
+    assert "Exception during display cleanup" in caplog.text

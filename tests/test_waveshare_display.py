@@ -1,5 +1,6 @@
 import sys
 import logging
+from types import SimpleNamespace
 from pathlib import Path
 
 from PIL import Image
@@ -41,6 +42,20 @@ class FakeEpd:
 
     def sleep(self):
         self.sleep_calls += 1
+
+
+class FakeCleanupEpd(FakeEpd):
+    def __init__(self):
+        super().__init__()
+        self.cleanup_calls = 0
+
+    def module_exit(self):
+        self.cleanup_calls += 1
+
+
+class FailingCleanupEpd(FakeEpd):
+    def module_exit(self):
+        raise RuntimeError("cleanup failed")
 
 
 class RaisingDisplayEpd(FakeEpd):
@@ -193,3 +208,48 @@ def test_waveshare_bi_color_display_closes_layers_when_display_raises(monkeypatc
         pass
 
     assert closed == ["black", "red"]
+
+
+def test_waveshare_close_calls_sleep_and_module_cleanup_hook():
+    display = make_display()
+    display.epd_display = FakeCleanupEpd()
+
+    display.close()
+
+    assert display.epd_display.sleep_calls == 1
+    assert display.epd_display.cleanup_calls == 1
+
+
+def test_waveshare_close_calls_epdconfig_cleanup_hook_with_cleanup_argument():
+    calls = []
+
+    def module_exit(cleanup):
+        calls.append(cleanup)
+
+    display = make_display()
+    display.epd_module = SimpleNamespace(epdconfig=SimpleNamespace(module_exit=module_exit))
+
+    display.close()
+
+    assert calls == [True]
+
+
+def test_waveshare_close_is_safe_without_known_cleanup_hook(caplog):
+    display = make_display()
+
+    caplog.set_level(logging.INFO, logger="display.waveshare_display")
+    display.close()
+
+    assert display.epd_display.sleep_calls == 1
+    assert "No Waveshare driver cleanup hook found" in caplog.text
+
+
+def test_waveshare_close_logs_and_swallows_cleanup_exceptions(caplog):
+    display = make_display()
+    display.epd_display = FailingCleanupEpd()
+
+    caplog.set_level(logging.ERROR, logger="display.waveshare_display")
+    display.close()
+
+    assert display.epd_display.sleep_calls == 1
+    assert "Exception during Waveshare cleanup hook epd_display.module_exit" in caplog.text
