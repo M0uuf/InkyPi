@@ -333,6 +333,35 @@ def test_refresh_diagnostics_are_disabled_by_default(monkeypatch, caplog):
     assert "Refresh diagnostics summary" not in caplog.text
 
 
+def test_log_system_stats_runs_outside_condition_lock(monkeypatch):
+    config = FakeDeviceConfig(values={
+        "log_system_stats": True,
+        "scheduler_check_interval_seconds": 60
+    })
+    task = RefreshTask(config, FakeDisplayManager())
+    log_called = threading.Event()
+    observed_lock_state = []
+
+    def fake_log_system_stats():
+        observed_lock_state.append(task.lock.locked())
+        log_called.set()
+        with task.condition:
+            task.running = False
+            task.condition.notify_all()
+
+    monkeypatch.setattr(task, "log_system_stats", fake_log_system_stats)
+    task.start()
+
+    try:
+        with task.condition:
+            task.condition.notify_all()
+        assert log_called.wait(timeout=2)
+    finally:
+        task.stop()
+
+    assert observed_lock_state == [False]
+
+
 def test_determine_next_plugin_honors_short_plugin_interval_despite_scheduler_check_interval():
     playlist = Playlist("Default", "00:00", "24:00", [{
         "plugin_id": "weather",

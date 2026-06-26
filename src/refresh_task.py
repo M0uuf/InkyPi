@@ -130,6 +130,7 @@ class RefreshTask:
             refresh_action = None
             latest_refresh = None
             current_dt = None
+            should_log_system_stats = False
             try:
                 diagnostics = self._performance_diagnostics()
                 with self.condition:
@@ -153,8 +154,7 @@ class RefreshTask:
                         current_dt = self._get_current_datetime()
 
                         if not self.manual_update_queue:
-                            if self.device_config.get_config("log_system_stats"):
-                                self.log_system_stats()
+                            should_log_system_stats = self.device_config.get_config("log_system_stats")
 
                             # handle refresh based on playlists
                             logger.info(f"Running interval refresh check. | current_time: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -168,6 +168,9 @@ class RefreshTask:
                         job = self.manual_update_queue.popleft()
                         job.mark_running()
                         refresh_action = job.refresh_action
+
+                if should_log_system_stats:
+                    self.log_system_stats()
 
                 if refresh_action:
                     display_updated = False
