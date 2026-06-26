@@ -105,19 +105,19 @@ class RefreshTask:
         """Background task that manages the periodic refresh of the display.
 
         This function runs in a loop, sleeping for the configured `scheduler_check_interval_seconds` duration or until
-        manually triggered via `manual_update()`. Determines the next plugin to refresh based on active playlists and
-        updates the display accordingly.
+        woken by a manual update/config-change notification. The scheduler check interval only controls how often the
+        background task asks whether work is due; each plugin instance still decides due-ness from its own interval or
+        scheduled refresh rule.
 
         Workflow:
-        1. Waits for the configured sleep duration or until notified of a manual update.
-        2. Checks if a manual update has been requested:
-        - If so, refreshes the specified plugin immediately.
-        3. Otherwise, determines the next plugin to refresh based on the active playlist and generates an image.
-        4. Compares the image hash with the last displayed image hash.
+        1. Waits for the scheduler check interval or until notified.
+        2. Processes a queued manual update immediately when one exists.
+        3. Otherwise, determines the active playlist and scans for the next plugin instance whose refresh rule is due.
+        4. Generates or loads the plugin image and compares it with the last displayed image hash.
         - If the image has changed, updates the display.
-        - If the image is the same, skips the refresh.
-        5. Updates the refresh metadata in the device configuration.
-        6. Repeats the process until `stop()` is called.
+        - If the image is the same, skips the display update.
+        5. Persists refresh metadata in the device configuration.
+        6. Repeats until `stop()` is called.
 
         Handles any exceptions that occur during the refresh process and ensures the refresh event is set 
         to indicate completion.

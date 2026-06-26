@@ -10,7 +10,6 @@
     "performance_diagnostics": false,
     "orientation": "horizontal",
     "inverted_image": false,
-    "scheduler_sleep_time": 60,
     "scheduler_check_interval_seconds": 60,
     "startup": true
 }
