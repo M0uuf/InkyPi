@@ -134,7 +134,7 @@ class DisplayManager:
             except Exception:
                 logger.exception("Exception during display cleanup")
 
-    def display_image(self, image, image_settings=[]):
+    def display_image(self, image, image_settings=None):
         
         """
         Delegates image rendering to the appropriate display instance.
@@ -146,6 +146,9 @@ class DisplayManager:
         Raises:
             ValueError: If no valid display instance is found.
         """
+
+        if image_settings is None:
+            image_settings = []
 
         if not hasattr(self, "display"):
             raise ValueError("No valid display instance initialized.")

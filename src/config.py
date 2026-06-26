@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from model import PlaylistManager, RefreshInfo
 
 logger = logging.getLogger(__name__)
+_DEFAULT_CONFIG_VALUE = object()
 
 class Config:
     SUPPORTED_PLUGIN_IDS = {"weather", "calendar"}
@@ -184,9 +185,11 @@ class Config:
         finally:
             os.close(dir_fd)
 
-    def get_config(self, key=None, default={}):
+    def get_config(self, key=None, default=_DEFAULT_CONFIG_VALUE):
         """Gets the value of a specific configuration key or returns the entire config if none provided."""
         if key is not None:
+            if default is _DEFAULT_CONFIG_VALUE:
+                default = {}
             return self.config.get(key, default)
         return self.config
 

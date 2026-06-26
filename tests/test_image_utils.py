@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from utils.image_utils import (
     RESIZE_FILTERS,
+    apply_image_enhancement,
     change_orientation,
     get_resize_filter,
     is_default_image_enhancement,
@@ -21,6 +22,16 @@ def test_resize_image_returns_original_when_target_size_matches():
     resized = resize_image(image, (16, 16))
 
     assert resized is image
+
+
+def test_image_helpers_accept_omitted_settings_without_shared_defaults():
+    image = Image.new("RGB", (16, 16), "white")
+
+    resized = resize_image(image, (8, 8))
+    enhanced = apply_image_enhancement(image)
+
+    assert resized.size == (8, 8)
+    assert enhanced is image
 
 
 def test_change_orientation_returns_original_for_horizontal_noop():
