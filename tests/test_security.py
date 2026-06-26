@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 flask = pytest.importorskip("flask")
 Flask = flask.Flask
+Blueprint = flask.Blueprint
 
 from security import init_security
 
@@ -23,13 +24,18 @@ class FakeDeviceConfig:
 
 
 def create_app(admin_token=None):
-    app = Flask(__name__)
+    template_dir = Path(__file__).resolve().parents[1] / "src" / "templates"
+    app = Flask(__name__, template_folder=str(template_dir))
     app.secret_key = "test-secret"
     app.config["DEVICE_CONFIG"] = FakeDeviceConfig(admin_token)
 
-    @app.route("/")
-    def index():
+    main_bp = Blueprint("main", __name__)
+
+    @main_bp.route("/")
+    def main_page():
         return "index"
+
+    app.register_blueprint(main_bp)
 
     @app.route("/mutate", methods=["POST"])
     def mutate():

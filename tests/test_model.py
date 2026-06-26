@@ -1,3 +1,4 @@
+import logging
 import pytest
 from datetime import datetime
 
@@ -160,6 +161,22 @@ def test_scheduled_plugin_refreshes_if_last_refresh_today_before_scheduled_time(
     )
 
     assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:00:00"))
+
+
+@pytest.mark.parametrize("scheduled_time", ["00:00", "08:00", "23:59"])
+def test_scheduled_plugin_accepts_strict_hh_mm_values(scheduled_time):
+    plugin = PluginInstance("weather", "Weather", {}, {"scheduled": scheduled_time})
+
+    assert plugin.should_refresh(datetime.fromisoformat("2026-05-09T23:59:00"))
+
+
+@pytest.mark.parametrize("scheduled_time", ["", "8:00", "not-time", "24:00", "12:60", None])
+def test_scheduled_plugin_ignores_invalid_legacy_scheduled_time(scheduled_time, caplog):
+    caplog.set_level(logging.WARNING, logger="src.model")
+    plugin = PluginInstance("weather", "Weather", {}, {"scheduled": scheduled_time})
+
+    assert not plugin.should_refresh(datetime.fromisoformat("2026-05-09T08:00:00"))
+    assert "Invalid scheduled refresh time" in caplog.text
 
 
 def test_playlist_selects_next_due_plugin_without_advancing_when_none_due():

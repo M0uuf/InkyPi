@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app, render_template
+from model import normalize_scheduled_refresh_time
 from utils.time_utils import calculate_seconds
 import json
 from datetime import datetime, timedelta
@@ -57,9 +58,10 @@ def add_plugin():
             refresh_interval_seconds = calculate_seconds(int(interval), unit)
             refresh_config = {"interval": refresh_interval_seconds}
         else:
-            refresh_time = refresh_settings.get('refreshTime')
-            if not refresh_settings.get('refreshTime'):
-                return jsonify({"error": "Refresh time is required"}), 400
+            try:
+                refresh_time = normalize_scheduled_refresh_time(refresh_settings.get('refreshTime'))
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
             refresh_config = {"scheduled": refresh_time}
 
         uploaded_settings = {}

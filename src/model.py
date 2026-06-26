@@ -1,7 +1,34 @@
 import logging
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, time as datetime_time, timedelta
 
 logger = logging.getLogger(__name__)
+SCHEDULED_REFRESH_TIME_PATTERN = re.compile(r"^\d{2}:\d{2}$")
+
+
+def normalize_scheduled_refresh_time(value):
+    if value is None:
+        raise ValueError("Refresh time is required")
+    if not isinstance(value, str):
+        raise ValueError("Refresh time must be in HH:MM format")
+
+    normalized_value = value.strip()
+    if not normalized_value:
+        raise ValueError("Refresh time is required")
+    if not SCHEDULED_REFRESH_TIME_PATTERN.fullmatch(normalized_value):
+        raise ValueError("Refresh time must be in HH:MM format")
+
+    hour, minute = (int(part) for part in normalized_value.split(":"))
+    if hour > 23 or minute > 59:
+        raise ValueError("Refresh time must be in HH:MM format")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def parse_scheduled_refresh_time(value):
+    normalized_value = normalize_scheduled_refresh_time(value)
+    hour, minute = (int(part) for part in normalized_value.split(":"))
+    return datetime_time(hour, minute)
+
 
 class RefreshInfo:
     """Keeps track of refresh metadata.
@@ -330,7 +357,18 @@ class PluginInstance:
         # Check for scheduled refresh (HH:MM format)
         if "scheduled" in self.refresh:
             scheduled_time_str = self.refresh.get("scheduled")
-            scheduled_time = datetime.strptime(scheduled_time_str, "%H:%M").time()
+            try:
+                scheduled_time = parse_scheduled_refresh_time(scheduled_time_str)
+            except ValueError as e:
+                logger.warning(
+                    "Invalid scheduled refresh time for plugin '%s' instance '%s': %r. "
+                    "Skipping scheduled refresh. | error: %s",
+                    self.plugin_id,
+                    self.name,
+                    scheduled_time_str,
+                    e
+                )
+                return False
             current_time_of_day = current_time.time().replace(tzinfo=None)
             current_date = current_time.date()
 

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app, render_template, send_from_directory, url_for
+from model import normalize_scheduled_refresh_time
 from plugins.plugin_registry import get_plugin_instance
 from utils.app_utils import (
     UploadValidationError,
@@ -10,6 +11,7 @@ from utils.app_utils import (
     resolve_path,
 )
 from refresh_task import ManualRefresh, PlaylistRefresh, ManualUpdateBusy
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import safe_join
 from functools import lru_cache
 import json
@@ -253,9 +255,11 @@ def update_plugin_instance(instance_name):
                     refresh_interval_seconds = calculate_seconds(int(interval), unit)
                     plugin_instance.refresh = {"interval": refresh_interval_seconds}
             elif refresh_type == "scheduled":
-                refresh_time = refresh_settings.get('refreshTime')
-                if refresh_time:
-                    plugin_instance.refresh = {"scheduled": refresh_time}
+                try:
+                    refresh_time = normalize_scheduled_refresh_time(refresh_settings.get('refreshTime'))
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
+                plugin_instance.refresh = {"scheduled": refresh_time}
 
         # Only update plugin settings if there's actual data (not just refresh settings)
         previous_settings = dict(plugin_instance.settings or {})
@@ -358,6 +362,11 @@ def update_now():
 
     except UploadValidationError as e:
         return jsonify({"error": str(e)}), e.status_code
+    except RequestEntityTooLarge:
+        max_content_length = current_app.config.get("MAX_CONTENT_LENGTH")
+        if max_content_length:
+            return jsonify({"error": f"Uploaded file exceeds the {max_content_length} byte limit"}), 413
+        return jsonify({"error": "Uploaded file exceeds the configured upload limit"}), 413
     except Exception as e:
         logger.exception(f"Error in update_now: {str(e)}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
