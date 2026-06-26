@@ -1,13 +1,11 @@
 from plugins.base_plugin.base_plugin import BasePlugin
 from PIL import Image, ImageDraw, ImageFont
-import os
 import requests
 import logging
 import time
 from datetime import datetime, timedelta, timezone, date
 from astral import moon
 import pytz
-from io import BytesIO
 import math
 from urllib.parse import quote
 from utils.app_utils import get_font

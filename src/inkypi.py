@@ -7,19 +7,13 @@ from pi_heif import register_heif_opener
 
 logging.config.fileConfig(os.path.join(os.path.dirname(__file__), 'config', 'logging.conf'))
 
-import os
 import secrets
-import time
-import sys
-import json
 import logging
-import threading
 import argparse
 from utils.app_utils import MAX_UPLOAD_BYTES, generate_startup_image
 from utils.lifecycle import shutdown_display_stack
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify
 from werkzeug.exceptions import RequestEntityTooLarge
-from werkzeug.serving import is_running_from_reloader
 from config import Config
 from display.display_manager import DisplayManager
 from refresh_task import RefreshTask

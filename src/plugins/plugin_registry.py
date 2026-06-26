@@ -1,6 +1,5 @@
 # app_registry.py
 
-import os
 import importlib
 import logging
 from utils.app_utils import resolve_path

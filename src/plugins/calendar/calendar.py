@@ -1,12 +1,10 @@
-import os
-from utils.app_utils import resolve_path, get_font
+from utils.app_utils import get_font
 from plugins.base_plugin.base_plugin import BasePlugin
 from plugins.calendar.constants import LOCALE_MAP, FONT_SIZES
 from utils.performance import is_performance_diagnostics_enabled
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import icalendar
 import recurring_ical_events
-from io import BytesIO
 import logging
 import requests
 import time

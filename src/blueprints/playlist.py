@@ -2,13 +2,11 @@ from flask import Blueprint, request, jsonify, current_app, render_template
 from utils.time_utils import calculate_seconds
 import json
 from datetime import datetime, timedelta
-import os
 import logging
 from utils.app_utils import (
     UploadValidationError,
     collect_saved_upload_paths_from_playlist_manager,
     delete_saved_uploads_for_settings,
-    resolve_path,
     handle_request_files,
     parse_form,
 )
