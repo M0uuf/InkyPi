@@ -100,8 +100,16 @@ def build_device_settings_update(form_data, previous_config=None):
     settings = {
         "name": form_data.get("deviceName"),
         "orientation": form_data.get("orientation"),
-        "inverted_image": form_data.get("invertImage"),
-        "log_system_stats": form_data.get("logSystemStats"),
+        "inverted_image": _parse_checkbox(
+            form_data,
+            "invertImage",
+            "Invert image"
+        ),
+        "log_system_stats": _parse_checkbox(
+            form_data,
+            "logSystemStats",
+            "Log system stats"
+        ),
         "timezone": form_data.get("timezoneName"),
         "time_format": form_data.get("timeFormat"),
         "scheduler_check_interval_seconds": scheduler_check_interval_seconds,

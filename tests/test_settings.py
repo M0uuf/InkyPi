@@ -75,6 +75,8 @@ def test_settings_update_persists_advanced_settings():
         "currentImagePollIntervalSeconds": "30",
         "displayLowResourceMode": "true",
         "displayResizeFilter": "bicubic",
+        "invertImage": "on",
+        "logSystemStats": "on",
         "performanceDiagnostics": "on",
         "webServerThreads": "4"
     })
@@ -89,6 +91,8 @@ def test_settings_update_persists_advanced_settings():
     assert settings["current_image_poll_interval_seconds"] == 30
     assert settings["display_low_resource_mode"] is True
     assert settings["display_resize_filter"] == "bicubic"
+    assert settings["inverted_image"] is True
+    assert settings["log_system_stats"] is True
     assert settings["performance_diagnostics"] is True
     assert settings["waveshare_clear_before_display"] is True
     assert settings["waveshare_sleep_after_display"] is False
@@ -102,6 +106,8 @@ def test_settings_update_preserves_auto_advanced_defaults():
         previous_config={"scheduler_check_interval_seconds": 60}
     )
 
+    assert settings["inverted_image"] is False
+    assert settings["log_system_stats"] is False
     assert settings["display_low_resource_mode"] is None
     assert settings["display_resize_filter"] is None
     assert settings["performance_diagnostics"] is False
@@ -132,6 +138,8 @@ def test_settings_validation_uses_scheduler_interval_name():
         ("webServerThreads", "9", "Web server threads must be between 1 and 8"),
         ("displayResizeFilter", "mitchell", "Display resize filter is invalid"),
         ("displayLowResourceMode", "sometimes", "Display low-resource mode must be Auto, Enabled, or Disabled"),
+        ("invertImage", "maybe", "Invert image must be a boolean value"),
+        ("logSystemStats", "maybe", "Log system stats must be a boolean value"),
         ("performanceDiagnostics", "maybe", "Performance diagnostics must be a boolean value"),
         ("waveshareClearBeforeDisplay", "maybe", "Waveshare clear before display must be a boolean value")
     ]
