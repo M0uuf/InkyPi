@@ -11,6 +11,7 @@ from utils.app_utils import (
     resolve_path,
 )
 from refresh_task import ManualRefresh, PlaylistRefresh, ManualUpdateBusy
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import safe_join
 from functools import lru_cache
 import json
@@ -361,6 +362,11 @@ def update_now():
 
     except UploadValidationError as e:
         return jsonify({"error": str(e)}), e.status_code
+    except RequestEntityTooLarge:
+        max_content_length = current_app.config.get("MAX_CONTENT_LENGTH")
+        if max_content_length:
+            return jsonify({"error": f"Uploaded file exceeds the {max_content_length} byte limit"}), 413
+        return jsonify({"error": "Uploaded file exceeds the configured upload limit"}), 413
     except Exception as e:
         logger.exception(f"Error in update_now: {str(e)}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
