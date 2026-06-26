@@ -7,7 +7,6 @@ import time
 from display.abstract_display import AbstractDisplay
 from PIL import Image
 from pathlib import Path
-from plugins.plugin_registry import get_plugin_instance
 
 logger = logging.getLogger(__name__)
 WAVESHARE_CLEANUP_HOOKS = ("module_exit", "Dev_exit", "cleanup", "close")
