@@ -237,6 +237,68 @@ def test_add_plugin_cleans_upload_and_rolls_back_when_config_write_fails(monkeyp
     assert config.playlist_manager.playlist.plugins == []
 
 
+def test_add_plugin_accepts_valid_scheduled_refresh_time():
+    config = SuccessfulWriteConfig()
+    app = Flask(__name__)
+    app.config["DEVICE_CONFIG"] = config
+    app.config["REFRESH_TASK"] = MagicMock(running=False)
+    app.register_blueprint(playlist_bp)
+
+    response = app.test_client().post("/add_plugin", data={
+        "plugin_id": "weather",
+        "refresh_settings": json.dumps({
+            "playlist": "Default",
+            "instance_name": "Weather",
+            "refreshType": "scheduled",
+            "refreshTime": "08:00"
+        })
+    })
+
+    assert response.status_code == 200
+    plugin = config.playlist_manager.playlist.find_plugin("weather", "Weather")
+    assert plugin.refresh == {"scheduled": "08:00"}
+
+
+@pytest.mark.parametrize(
+    "refresh_time,expected_error",
+    [
+        ("", "Refresh time is required"),
+        ("8:00", "Refresh time must be in HH:MM format"),
+        ("24:00", "Refresh time must be in HH:MM format"),
+    ]
+)
+def test_add_plugin_rejects_invalid_scheduled_refresh_time_before_saving_upload(
+    monkeypatch,
+    refresh_time,
+    expected_error
+):
+    def fail_if_called(request_files):
+        raise AssertionError("uploads should not be saved before refresh time validation")
+
+    monkeypatch.setattr(playlist_module, "handle_request_files", fail_if_called)
+
+    config = SuccessfulWriteConfig()
+    app = Flask(__name__)
+    app.config["DEVICE_CONFIG"] = config
+    app.config["REFRESH_TASK"] = MagicMock(running=False)
+    app.register_blueprint(playlist_bp)
+
+    response = app.test_client().post("/add_plugin", data={
+        "plugin_id": "weather",
+        "refresh_settings": json.dumps({
+            "playlist": "Default",
+            "instance_name": "Weather",
+            "refreshType": "scheduled",
+            "refreshTime": refresh_time
+        }),
+        "backgroundImageFile": (io.BytesIO(b"image"), "image.png")
+    })
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == expected_error
+    assert config.playlist_manager.playlist.plugins == []
+
+
 def test_delete_plugin_instance_write_failure_keeps_saved_upload(monkeypatch, tmp_path):
     upload_dir = tmp_path / "src" / "static" / "images" / "saved"
     upload_dir.mkdir(parents=True)
@@ -368,6 +430,50 @@ def test_update_plugin_instance_rejects_unsupported_plugin_id():
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Unsupported plugin 'clock'"
+
+
+@pytest.mark.parametrize(
+    "refresh_time,expected_error",
+    [
+        ("", "Refresh time is required"),
+        ("12:60", "Refresh time must be in HH:MM format"),
+    ]
+)
+def test_update_plugin_instance_rejects_invalid_scheduled_refresh_time_before_saving_upload(
+    monkeypatch,
+    refresh_time,
+    expected_error
+):
+    def fail_if_called(request_files, form_data=None):
+        raise AssertionError("uploads should not be saved before refresh time validation")
+
+    monkeypatch.setattr(plugin_module, "handle_request_files", fail_if_called)
+
+    config = SuccessfulWriteConfig(plugins=[{
+        "plugin_id": "weather",
+        "name": "Weather",
+        "plugin_settings": {},
+        "refresh": {"scheduled": "08:00"}
+    }])
+    app = Flask(__name__)
+    app.config["DEVICE_CONFIG"] = config
+    app.config["REFRESH_TASK"] = MagicMock(running=False)
+    app.config["DISPLAY_MANAGER"] = MagicMock()
+    app.register_blueprint(plugin_bp)
+
+    response = app.test_client().put("/update_plugin_instance/Weather", data={
+        "plugin_id": "weather",
+        "refresh_settings": json.dumps({
+            "refreshType": "scheduled",
+            "refreshTime": refresh_time
+        }),
+        "backgroundImageFile": (io.BytesIO(b"image"), "image.png")
+    })
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == expected_error
+    plugin = config.playlist_manager.playlist.find_plugin("weather", "Weather")
+    assert plugin.refresh == {"scheduled": "08:00"}
 
 
 def test_display_plugin_instance_rejects_unsupported_plugin_id():

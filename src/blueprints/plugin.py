@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app, render_template, send_from_directory, url_for
+from model import normalize_scheduled_refresh_time
 from plugins.plugin_registry import get_plugin_instance
 from utils.app_utils import (
     UploadValidationError,
@@ -253,9 +254,11 @@ def update_plugin_instance(instance_name):
                     refresh_interval_seconds = calculate_seconds(int(interval), unit)
                     plugin_instance.refresh = {"interval": refresh_interval_seconds}
             elif refresh_type == "scheduled":
-                refresh_time = refresh_settings.get('refreshTime')
-                if refresh_time:
-                    plugin_instance.refresh = {"scheduled": refresh_time}
+                try:
+                    refresh_time = normalize_scheduled_refresh_time(refresh_settings.get('refreshTime'))
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
+                plugin_instance.refresh = {"scheduled": refresh_time}
 
         # Only update plugin settings if there's actual data (not just refresh settings)
         previous_settings = dict(plugin_instance.settings or {})
