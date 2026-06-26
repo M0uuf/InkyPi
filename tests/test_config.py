@@ -118,6 +118,17 @@ def test_config_caps_web_server_threads():
     assert config.get_web_server_threads(default=2, max_threads=8) == 8
 
 
+def test_get_config_missing_key_without_default_returns_fresh_empty_dict():
+    config = Config.__new__(Config)
+    config.config = {}
+
+    first_default = config.get_config("missing")
+    first_default["changed"] = True
+
+    assert config.get_config("missing") == {}
+    assert config.get_config("missing", default=None) is None
+
+
 def test_write_config_uses_same_directory_atomic_replace(monkeypatch, tmp_path):
     config = build_writable_config(tmp_path)
     replace_calls = []

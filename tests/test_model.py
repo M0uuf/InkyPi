@@ -4,7 +4,18 @@ from datetime import datetime
 
 import pytz
 
-from src.model import Playlist, PluginInstance
+from src.model import Playlist, PlaylistManager, PluginInstance
+
+
+def test_playlist_manager_instances_do_not_share_default_playlist_list():
+    first = PlaylistManager()
+    second = PlaylistManager()
+
+    first.add_default_playlist()
+
+    assert first.get_playlist_names() == ["Default"]
+    assert second.get_playlist_names() == []
+
 
 class TestPlaylist:
 

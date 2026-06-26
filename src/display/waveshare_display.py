@@ -194,7 +194,7 @@ class WaveshareDisplay(AbstractDisplay):
         if not attempted_cleanup:
             logger.info("No Waveshare driver cleanup hook found.")
 
-    def display_image(self, image, image_settings=[]):
+    def display_image(self, image, image_settings=None):
         
         """
         Displays an image on the Waveshare display.
@@ -209,6 +209,9 @@ class WaveshareDisplay(AbstractDisplay):
         Raises:
             ValueError: If no image is provided.
         """
+
+        if image_settings is None:
+            image_settings = []
 
         logger.info("Displaying image to Waveshare display.")
         if not image:

@@ -65,6 +65,21 @@ def test_handle_request_files_uses_unique_names_for_duplicate_upload_names(monke
     assert Path(paths[1]).read_bytes() == b"second"
 
 
+def test_handle_request_files_omitted_form_data_does_not_share_state(monkeypatch, tmp_path):
+    upload_dir = patch_upload_dir(monkeypatch, tmp_path)
+
+    first = handle_request_files(DummyRequestFiles([
+        ("backgroundImageFile", DummyUpload("first.png", b"first")),
+    ]))
+    second = handle_request_files(DummyRequestFiles([
+        ("otherImageFile", DummyUpload("second.png", b"second")),
+    ]))
+
+    assert set(first) == {"backgroundImageFile"}
+    assert set(second) == {"otherImageFile"}
+    assert all(Path(path).parent == upload_dir for path in [*first.values(), *second.values()])
+
+
 def test_handle_request_files_rejects_disallowed_extension(monkeypatch, tmp_path):
     upload_dir = patch_upload_dir(monkeypatch, tmp_path)
     request_files = DummyRequestFiles([

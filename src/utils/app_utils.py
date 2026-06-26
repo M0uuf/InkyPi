@@ -300,7 +300,9 @@ def collect_saved_upload_paths_from_playlist_manager(
     return retained_paths
 
 
-def handle_request_files(request_files, form_data={}):
+def handle_request_files(request_files, form_data=None):
+    if form_data is None:
+        form_data = {}
     file_location_map = {}
     saved_paths = []
     # handle existing file locations being provided as part of the form data

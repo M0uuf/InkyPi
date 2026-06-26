@@ -109,7 +109,9 @@ def normalize_image_mode_for_enhancement(img):
     return img
 
 
-def resize_image(image, desired_size, image_settings=[], resample_filter=Image.Resampling.LANCZOS):
+def resize_image(image, desired_size, image_settings=None, resample_filter=Image.Resampling.LANCZOS):
+    if image_settings is None:
+        image_settings = []
     img_width, img_height = image.size
     desired_width, desired_height = desired_size
     desired_width, desired_height = int(desired_width), int(desired_height)
@@ -144,7 +146,9 @@ def resize_image(image, desired_size, image_settings=[], resample_filter=Image.R
     # Step 3: Resize to the exact desired dimensions (if necessary)
     return image.resize((desired_width, desired_height), resample_filter)
 
-def apply_image_enhancement(img, image_settings={}):
+def apply_image_enhancement(img, image_settings=None):
+    if image_settings is None:
+        image_settings = {}
     img = normalize_image_mode_for_enhancement(img)
 
     if is_default_image_enhancement(image_settings):
