@@ -72,50 +72,127 @@ class Config:
         changed = False
 
         plugin_order = self.config.get("plugin_order")
-        if plugin_order:
+        if plugin_order is None:
+            pass
+        elif not isinstance(plugin_order, list):
+            logger.warning(
+                "Ignoring malformed plugin_order; expected list, got %s.",
+                type(plugin_order).__name__
+            )
+            self.config["plugin_order"] = []
+            changed = True
+        else:
             supported_order = [plugin_id for plugin_id in plugin_order if plugin_id in self.SUPPORTED_PLUGIN_IDS]
             removed = [plugin_id for plugin_id in plugin_order if plugin_id not in self.SUPPORTED_PLUGIN_IDS]
             if removed:
-                logger.warning("Ignoring unsupported plugin_order entries: %s", ", ".join(sorted(set(removed))))
+                removed_names = sorted({str(plugin_id) for plugin_id in removed})
+                logger.warning("Ignoring unsupported plugin_order entries: %s", ", ".join(removed_names))
                 self.config["plugin_order"] = supported_order
                 changed = True
 
         playlist_config = self.config.get("playlist_config", {})
-        for playlist in playlist_config.get("playlists", []):
+        if playlist_config is None or not isinstance(playlist_config, dict):
+            logger.warning(
+                "Ignoring malformed playlist_config; expected object, got %s.",
+                type(playlist_config).__name__
+            )
+            playlist_config = {"playlists": [], "active_playlist": None}
+            self.config["playlist_config"] = playlist_config
+            changed = True
+
+        playlists = playlist_config.get("playlists", [])
+        if playlists is None:
+            playlists = []
+            playlist_config["playlists"] = playlists
+            changed = True
+        elif not isinstance(playlists, list):
+            logger.warning(
+                "Ignoring malformed playlist_config.playlists; expected list, got %s.",
+                type(playlists).__name__
+            )
+            playlists = []
+            playlist_config["playlists"] = playlists
+            changed = True
+
+        supported_playlists = []
+        removed_malformed_playlists = False
+        for playlist in playlists:
+            if not isinstance(playlist, dict):
+                removed_malformed_playlists = True
+                continue
+
             plugins = playlist.get("plugins", [])
+            if plugins is None:
+                plugins = []
+                playlist["plugins"] = plugins
+                playlist["current_plugin_index"] = None
+                changed = True
+            elif not isinstance(plugins, list):
+                playlist_name = playlist.get("name", "Unnamed")
+                logger.warning(
+                    "Ignoring malformed plugins list in playlist '%s'; expected list, got %s.",
+                    playlist_name,
+                    type(plugins).__name__
+                )
+                plugins = []
+                playlist["plugins"] = plugins
+                playlist["current_plugin_index"] = None
+                changed = True
+
             supported_plugins = [
                 plugin for plugin in plugins
+                if isinstance(plugin, dict)
                 if plugin.get("plugin_id") in self.SUPPORTED_PLUGIN_IDS
             ]
             removed_plugins = [
-                plugin.get("plugin_id", "unknown")
+                plugin.get("plugin_id", "unknown") if isinstance(plugin, dict) else type(plugin).__name__
                 for plugin in plugins
-                if plugin.get("plugin_id") not in self.SUPPORTED_PLUGIN_IDS
+                if not isinstance(plugin, dict) or plugin.get("plugin_id") not in self.SUPPORTED_PLUGIN_IDS
             ]
             if removed_plugins:
                 playlist_name = playlist.get("name", "Unnamed")
+                removed_plugin_names = sorted({str(plugin_id) for plugin_id in removed_plugins})
                 logger.warning(
                     "Ignoring unsupported plugin instances in playlist '%s': %s",
                     playlist_name,
-                    ", ".join(sorted(set(removed_plugins)))
+                    ", ".join(removed_plugin_names)
                 )
                 playlist["plugins"] = supported_plugins
                 playlist["current_plugin_index"] = None
                 changed = True
 
-        refresh_info = self.config.get("refresh_info", {})
-        refresh_plugin_id = refresh_info.get("plugin_id")
-        if refresh_plugin_id and refresh_plugin_id not in self.SUPPORTED_PLUGIN_IDS:
-            logger.warning("Clearing refresh_info for unsupported plugin '%s'.", refresh_plugin_id)
-            self.config["refresh_info"] = {
-                "refresh_time": None,
-                "image_hash": None,
-                "refresh_type": None,
-                "plugin_id": None
-            }
+            supported_playlists.append(playlist)
+
+        if removed_malformed_playlists:
+            logger.warning("Ignoring malformed playlist entries; expected objects.")
+            playlist_config["playlists"] = supported_playlists
             changed = True
 
+        refresh_info = self.config.get("refresh_info", {})
+        if refresh_info is None or not isinstance(refresh_info, dict):
+            logger.warning(
+                "Ignoring malformed refresh_info; expected object, got %s.",
+                type(refresh_info).__name__
+            )
+            self.config["refresh_info"] = self.empty_refresh_info()
+            changed = True
+        else:
+            refresh_plugin_id = refresh_info.get("plugin_id")
+            if refresh_plugin_id and refresh_plugin_id not in self.SUPPORTED_PLUGIN_IDS:
+                logger.warning("Clearing refresh_info for unsupported plugin '%s'.", refresh_plugin_id)
+                self.config["refresh_info"] = self.empty_refresh_info()
+                changed = True
+
         return changed
+
+    @staticmethod
+    def empty_refresh_info():
+        return {
+            "refresh_time": None,
+            "image_hash": None,
+            "refresh_type": None,
+            "plugin_id": None
+        }
 
     def write_raw_config(self):
         """Writes the current config dictionary without syncing model objects first."""
