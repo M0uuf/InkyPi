@@ -26,6 +26,7 @@ class Config:
     plugin_image_dir = os.path.join(BASE_DIR, "static", "images", "plugins")
 
     REQUIRED_PLAYLIST_FIELDS = ("name", "start_time", "end_time")
+    REQUIRED_PLUGIN_INSTANCE_FIELDS = ("plugin_id", "name", "plugin_settings", "refresh")
 
     def __init__(self):
         self._write_lock = threading.RLock()
@@ -72,9 +73,9 @@ class Config:
     def sanitize_plugin_config(self):
         """Remove unsupported plugin references and malformed playlist shapes.
 
-        Playlist entries must keep the required fields consumed by
-        Playlist.from_dict(). Missing plugin lists are repairable, but entries
-        without required playlist metadata are removed instead of invented.
+        Playlist and plugin entries must keep the required fields consumed by
+        their model from_dict() loaders. Missing plugin lists are repairable,
+        but entries without required metadata are removed instead of invented.
         """
         changed = False
 
@@ -159,16 +160,39 @@ class Config:
                 playlist["current_plugin_index"] = None
                 changed = True
 
-            supported_plugins = [
-                plugin for plugin in plugins
-                if isinstance(plugin, dict)
-                if plugin.get("plugin_id") in self.SUPPORTED_PLUGIN_IDS
-            ]
-            removed_plugins = [
-                plugin.get("plugin_id", "unknown") if isinstance(plugin, dict) else type(plugin).__name__
-                for plugin in plugins
-                if not isinstance(plugin, dict) or plugin.get("plugin_id") not in self.SUPPORTED_PLUGIN_IDS
-            ]
+            supported_plugins = []
+            removed_plugins = []
+            for plugin in plugins:
+                if not isinstance(plugin, dict):
+                    removed_plugins.append(type(plugin).__name__)
+                    continue
+
+                plugin_id = plugin.get("plugin_id")
+                if plugin_id not in self.SUPPORTED_PLUGIN_IDS:
+                    removed_plugins.append(plugin.get("plugin_id", "unknown"))
+                    continue
+
+                missing_plugin_fields = [
+                    field
+                    for field in self.REQUIRED_PLUGIN_INSTANCE_FIELDS
+                    if field not in plugin
+                ]
+                if (
+                    missing_plugin_fields
+                    or not isinstance(plugin.get("name"), str)
+                    or not isinstance(plugin.get("plugin_settings"), dict)
+                    or not isinstance(plugin.get("refresh"), dict)
+                ):
+                    removed_plugins.append(plugin_id)
+                    logger.warning(
+                        "Ignoring malformed plugin instance '%s' in playlist '%s'.",
+                        plugin_id,
+                        playlist.get("name", "Unnamed")
+                    )
+                    continue
+
+                supported_plugins.append(plugin)
+
             if removed_plugins:
                 playlist_name = playlist.get("name", "Unnamed")
                 removed_plugin_names = sorted({str(plugin_id) for plugin_id in removed_plugins})

@@ -176,6 +176,33 @@ def test_config_sanitizes_malformed_playlist_shapes(tmp_path):
                             "plugin_settings": {},
                             "refresh": {"interval": 3600}
                         },
+                        {
+                            "plugin_id": "calendar",
+                            "plugin_settings": {},
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "weather",
+                            "name": "Weather missing settings",
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "calendar",
+                            "name": "Calendar missing refresh",
+                            "plugin_settings": {}
+                        },
+                        {
+                            "plugin_id": "calendar",
+                            "name": "Calendar malformed settings",
+                            "plugin_settings": "bad",
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "weather",
+                            "name": "Weather malformed refresh",
+                            "plugin_settings": {},
+                            "refresh": "hourly"
+                        },
                         "not-a-plugin",
                         {
                             "plugin_id": "clock",
