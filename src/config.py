@@ -122,7 +122,7 @@ class Config:
                 continue
 
             plugins = playlist.get("plugins", [])
-            if plugins is None:
+            if "plugins" not in playlist or plugins is None:
                 plugins = []
                 playlist["plugins"] = plugins
                 playlist["current_plugin_index"] = None

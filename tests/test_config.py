@@ -145,6 +145,12 @@ def test_config_sanitizes_malformed_playlist_shapes(tmp_path):
                     "current_plugin_index": 0
                 },
                 {
+                    "name": "Missing plugins",
+                    "start_time": "00:00",
+                    "end_time": "24:00",
+                    "current_plugin_index": 0
+                },
+                {
                     "name": "Mixed plugins",
                     "start_time": "00:00",
                     "end_time": "24:00",
@@ -180,6 +186,9 @@ def test_config_sanitizes_malformed_playlist_shapes(tmp_path):
     malformed_playlist = config.get_playlist_manager().get_playlist("Malformed plugins")
     assert malformed_playlist.plugins == []
     assert malformed_playlist.current_plugin_index is None
+    missing_plugins_playlist = config.get_playlist_manager().get_playlist("Missing plugins")
+    assert missing_plugins_playlist.plugins == []
+    assert missing_plugins_playlist.current_plugin_index is None
     mixed_playlist = config.get_playlist_manager().get_playlist("Mixed plugins")
     assert [plugin.plugin_id for plugin in mixed_playlist.plugins] == ["weather"]
     assert mixed_playlist.current_plugin_index is None
@@ -187,11 +196,17 @@ def test_config_sanitizes_malformed_playlist_shapes(tmp_path):
     saved_config = json.loads(config_file.read_text())
     assert saved_config["plugin_order"] == ["weather", "calendar"]
     saved_playlists = saved_config["playlist_config"]["playlists"]
-    assert [playlist["name"] for playlist in saved_playlists] == ["Malformed plugins", "Mixed plugins"]
+    assert [playlist["name"] for playlist in saved_playlists] == [
+        "Malformed plugins",
+        "Missing plugins",
+        "Mixed plugins"
+    ]
     assert saved_playlists[0]["plugins"] == []
     assert saved_playlists[0]["current_plugin_index"] is None
-    assert [plugin["plugin_id"] for plugin in saved_playlists[1]["plugins"]] == ["weather"]
+    assert saved_playlists[1]["plugins"] == []
     assert saved_playlists[1]["current_plugin_index"] is None
+    assert [plugin["plugin_id"] for plugin in saved_playlists[2]["plugins"]] == ["weather"]
+    assert saved_playlists[2]["current_plugin_index"] is None
 
 
 def test_config_sanitizes_non_list_playlists(tmp_path):
