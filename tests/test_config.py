@@ -32,9 +32,22 @@ def build_writable_config(tmp_path):
     return config
 
 
-def test_config_loads_only_supported_builtin_plugins(tmp_path):
+def load_config_from_temp_file(tmp_path, data):
     config_file = tmp_path / "device.json"
-    config_file.write_text(json.dumps({
+    config_file.write_text(json.dumps(data))
+
+    original_config_file = Config.config_file
+    Config.config_file = str(config_file)
+    try:
+        config = Config()
+    finally:
+        Config.config_file = original_config_file
+
+    return config, config_file
+
+
+def test_config_loads_only_supported_builtin_plugins(tmp_path):
+    config, config_file = load_config_from_temp_file(tmp_path, {
         "plugin_order": ["clock", "weather", "calendar"],
         "playlist_config": {
             "playlists": [
@@ -67,14 +80,7 @@ def test_config_loads_only_supported_builtin_plugins(tmp_path):
             "refresh_type": "Playlist",
             "plugin_id": "clock"
         }
-    }))
-
-    original_config_file = Config.config_file
-    Config.config_file = str(config_file)
-    try:
-        config = Config()
-    finally:
-        Config.config_file = original_config_file
+    })
 
     assert [plugin["id"] for plugin in config.get_plugins()] == ["weather", "calendar"]
     assert all(plugin["icon_version"].isdigit() for plugin in config.get_plugins())
@@ -94,6 +100,175 @@ def test_config_loads_only_supported_builtin_plugins(tmp_path):
     backup_config = json.loads(backups[0].read_text())
     assert backup_config["plugin_order"] == ["clock", "weather", "calendar"]
     assert backup_config["playlist_config"]["playlists"][0]["plugins"][1]["plugin_id"] == "clock"
+
+
+def test_config_sanitizes_malformed_top_level_plugin_config_shapes(tmp_path):
+    config, config_file = load_config_from_temp_file(tmp_path, {
+        "plugin_order": "weather",
+        "playlist_config": None,
+        "refresh_info": ["bad"]
+    })
+
+    assert config.get_config("plugin_order") == []
+    assert config.get_playlist_manager().get_playlist("Default") is not None
+    assert config.get_refresh_info().plugin_id is None
+
+    saved_config = json.loads(config_file.read_text())
+    assert saved_config["plugin_order"] == []
+    assert saved_config["playlist_config"] == {"playlists": [], "active_playlist": None}
+    assert saved_config["refresh_info"] == {
+        "refresh_time": None,
+        "image_hash": None,
+        "refresh_type": None,
+        "plugin_id": None
+    }
+
+    backups = list(tmp_path.glob("device.pre-weather-calendar-only-*.json"))
+    assert len(backups) == 1
+    backup_config = json.loads(backups[0].read_text())
+    assert backup_config["plugin_order"] == "weather"
+    assert backup_config["playlist_config"] is None
+    assert backup_config["refresh_info"] == ["bad"]
+
+
+def test_config_sanitizes_malformed_playlist_shapes(tmp_path):
+    config, config_file = load_config_from_temp_file(tmp_path, {
+        "plugin_order": ["weather", "clock", 42, "calendar"],
+        "playlist_config": {
+            "playlists": [
+                "not-a-playlist",
+                {
+                    "name": "Malformed plugins",
+                    "start_time": "00:00",
+                    "end_time": "24:00",
+                    "plugins": {"plugin_id": "weather"},
+                    "current_plugin_index": 0
+                },
+                {
+                    "name": "Missing plugins",
+                    "start_time": "00:00",
+                    "end_time": "24:00",
+                    "current_plugin_index": 0
+                },
+                {
+                    "start_time": "00:00",
+                    "end_time": "24:00",
+                    "plugins": []
+                },
+                {
+                    "name": "Missing start",
+                    "end_time": "24:00",
+                    "plugins": []
+                },
+                {
+                    "name": "Missing end",
+                    "start_time": "00:00",
+                    "plugins": []
+                },
+                {
+                    "name": "Mixed plugins",
+                    "start_time": "00:00",
+                    "end_time": "24:00",
+                    "plugins": [
+                        {
+                            "plugin_id": "weather",
+                            "name": "Weather",
+                            "plugin_settings": {},
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "calendar",
+                            "plugin_settings": {},
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "weather",
+                            "name": "Weather missing settings",
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "calendar",
+                            "name": "Calendar missing refresh",
+                            "plugin_settings": {}
+                        },
+                        {
+                            "plugin_id": "calendar",
+                            "name": "Calendar malformed settings",
+                            "plugin_settings": "bad",
+                            "refresh": {"interval": 3600}
+                        },
+                        {
+                            "plugin_id": "weather",
+                            "name": "Weather malformed refresh",
+                            "plugin_settings": {},
+                            "refresh": "hourly"
+                        },
+                        "not-a-plugin",
+                        {
+                            "plugin_id": "clock",
+                            "name": "Clock",
+                            "plugin_settings": {},
+                            "refresh": {"interval": 3600}
+                        }
+                    ],
+                    "current_plugin_index": 2
+                }
+            ],
+            "active_playlist": None
+        },
+        "refresh_info": {
+            "refresh_time": None,
+            "image_hash": None,
+            "refresh_type": None,
+            "plugin_id": None
+        }
+    })
+
+    assert config.get_config("plugin_order") == ["weather", "calendar"]
+    malformed_playlist = config.get_playlist_manager().get_playlist("Malformed plugins")
+    assert malformed_playlist.plugins == []
+    assert malformed_playlist.current_plugin_index is None
+    missing_plugins_playlist = config.get_playlist_manager().get_playlist("Missing plugins")
+    assert missing_plugins_playlist.plugins == []
+    assert missing_plugins_playlist.current_plugin_index is None
+    mixed_playlist = config.get_playlist_manager().get_playlist("Mixed plugins")
+    assert [plugin.plugin_id for plugin in mixed_playlist.plugins] == ["weather"]
+    assert mixed_playlist.current_plugin_index is None
+
+    saved_config = json.loads(config_file.read_text())
+    assert saved_config["plugin_order"] == ["weather", "calendar"]
+    saved_playlists = saved_config["playlist_config"]["playlists"]
+    assert [playlist["name"] for playlist in saved_playlists] == [
+        "Malformed plugins",
+        "Missing plugins",
+        "Mixed plugins"
+    ]
+    assert saved_playlists[0]["plugins"] == []
+    assert saved_playlists[0]["current_plugin_index"] is None
+    assert saved_playlists[1]["plugins"] == []
+    assert saved_playlists[1]["current_plugin_index"] is None
+    assert [plugin["plugin_id"] for plugin in saved_playlists[2]["plugins"]] == ["weather"]
+    assert saved_playlists[2]["current_plugin_index"] is None
+
+
+def test_config_sanitizes_non_list_playlists(tmp_path):
+    config, config_file = load_config_from_temp_file(tmp_path, {
+        "playlist_config": {
+            "playlists": {"name": "Bad shape"},
+            "active_playlist": "Bad shape"
+        },
+        "refresh_info": {
+            "refresh_time": None,
+            "image_hash": None,
+            "refresh_type": None,
+            "plugin_id": None
+        }
+    })
+
+    assert config.get_playlist_manager().get_playlist("Default") is not None
+
+    saved_config = json.loads(config_file.read_text())
+    assert saved_config["playlist_config"]["playlists"] == []
 
 
 def test_config_returns_validated_web_server_threads():
