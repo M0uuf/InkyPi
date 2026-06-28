@@ -151,6 +151,21 @@ def test_config_sanitizes_malformed_playlist_shapes(tmp_path):
                     "current_plugin_index": 0
                 },
                 {
+                    "start_time": "00:00",
+                    "end_time": "24:00",
+                    "plugins": []
+                },
+                {
+                    "name": "Missing start",
+                    "end_time": "24:00",
+                    "plugins": []
+                },
+                {
+                    "name": "Missing end",
+                    "start_time": "00:00",
+                    "plugins": []
+                },
+                {
                     "name": "Mixed plugins",
                     "start_time": "00:00",
                     "end_time": "24:00",

@@ -25,6 +25,8 @@ class Config:
     # Directory path for storing plugin instance images
     plugin_image_dir = os.path.join(BASE_DIR, "static", "images", "plugins")
 
+    REQUIRED_PLAYLIST_FIELDS = ("name", "start_time", "end_time")
+
     def __init__(self):
         self._write_lock = threading.RLock()
         self.config = self.read_config()
@@ -68,7 +70,12 @@ class Config:
         return plugins_list
 
     def sanitize_plugin_config(self):
-        """Remove references to built-in plugins that are no longer supported."""
+        """Remove unsupported plugin references and malformed playlist shapes.
+
+        Playlist entries must keep the required fields consumed by
+        Playlist.from_dict(). Missing plugin lists are repairable, but entries
+        without required playlist metadata are removed instead of invented.
+        """
         changed = False
 
         plugin_order = self.config.get("plugin_order")
@@ -118,6 +125,19 @@ class Config:
         removed_malformed_playlists = False
         for playlist in playlists:
             if not isinstance(playlist, dict):
+                removed_malformed_playlists = True
+                continue
+
+            missing_required_fields = [
+                field
+                for field in self.REQUIRED_PLAYLIST_FIELDS
+                if not isinstance(playlist.get(field), str)
+            ]
+            if missing_required_fields:
+                logger.warning(
+                    "Ignoring malformed playlist entry missing required fields: %s.",
+                    ", ".join(missing_required_fields)
+                )
                 removed_malformed_playlists = True
                 continue
 
